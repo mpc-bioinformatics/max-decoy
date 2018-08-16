@@ -1,0 +1,7 @@
+[package]
+name = "fasta_parser"
+version = "0.1.0"
+authors = ["Dirk Winkelhardt <dirk.winkelhardt@gmail.com>"]
+
+[dependencies]
+regex = "0.2"
