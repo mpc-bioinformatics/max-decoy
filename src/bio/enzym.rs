@@ -12,7 +12,7 @@ pub struct Trypsin {
     max_peptide_length: usize
 }
 
-pub trait DigstEnzym {
+pub trait DigestEnzym {
     fn new(max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Self;
     fn get_max_number_of_missed_cleavages(&self) -> usize;
     fn get_digist_regex(&self) -> &regex::Regex;
@@ -115,7 +115,7 @@ pub trait DigstEnzym {
 }
 
 
-impl DigstEnzym for Trypsin {
+impl DigestEnzym for Trypsin {
     fn new (max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Trypsin {
         Trypsin {
             digist_regex: regex::Regex::new(r"(?P<before>(K|R))(?P<after>[^P])").unwrap(),

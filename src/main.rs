@@ -5,7 +5,7 @@ use std::io::prelude::*;
 
 mod bio;
 
-use bio::enzym::{DigstEnzym, Trypsin};
+use bio::enzym::{DigestEnzym, Trypsin};
 use bio::protein::Protein;
 
 
