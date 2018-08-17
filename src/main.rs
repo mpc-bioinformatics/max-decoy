@@ -25,6 +25,7 @@ fn main() {
 
     for line in fasta_file.lines() {
         let string_line = line.unwrap();
+        // strip and replace/error whitespaces
         if !string_line.starts_with(">") {
             aa_sequence.push_str(&string_line);
         } else {
@@ -41,4 +42,5 @@ fn main() {
             accession = string_line;
         }
     }
+    // add last line
 }
