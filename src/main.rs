@@ -31,7 +31,10 @@ fn main() {
             if accession.len() > 0 {
                 let mut protein: Protein = Protein::new(accession, aa_sequence);
                 let mut trypsin: Trypsin = Trypsin::new(3, 1, 50);
-                trypsin.digest(&mut protein);
+                let peptides = trypsin.digest(&mut protein);
+                for pep in peptides {
+                    println!("{}", pep);
+                }
                 //aa_sequence = String::new();
                 break;
             }
@@ -39,17 +42,3 @@ fn main() {
         }
     }
 }
-
-// fn main (){
-//     let peps = vec!["A","B","C","D","E","F","G","H"];
-//     let msc = vec![2, 3, 7];
-//     let mut new_pep = String::new();
-//     for i in 0..msc.len() {
-//         new_pep.push_str(peps[msc[i]]);
-//         if (i + 1) < (msc.len()) && msc[i+1] != msc[i] + 1 {
-//             // add to peptides
-//             new_pep = String::new();
-//         }
-//     }
-//     // add to peptides
-// }
