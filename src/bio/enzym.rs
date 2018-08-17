@@ -6,15 +6,38 @@ use std::iter::FromIterator;
 pub struct Trypsin {
     digist_regex: regex::Regex,
     digest_replace: &'static str,
-    missed_cleavages: usize,
+    max_number_of_missed_cleavages: usize,
+    // replace this with a range in the feature: https://doc.rust-lang.org/std/ops/struct.Range.html#method.contains
     min_peptide_length: usize,
     max_peptide_length: usize
 }
 
 pub trait DigstEnzym {
-    fn new(missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Self;
+    fn new(max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Self;
+    fn get_max_number_of_missed_cleavages(&self) -> usize;
+    fn get_digist_regex(&self) -> &regex::Regex;
+    fn get_digist_replace(&self) -> &'static str;
+    fn get_min_peptide_length(&self) -> usize;
+    fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut super::protein::Protein) -> HashSet<String>;
+    fn digest(&self, protein: &mut super::protein::Protein) -> HashSet<String> {
+        /*
+         * clone aa_squence and pass it as mutable into replace_all
+         * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
+         * make the result mutable and split it on whitespaces
+         * collect the results as String-vector
+         */
+        let peptides_without_missed_cleavages: Vec<String> = self.get_digist_regex().replace_all(protein.get_aa_sequence().clone().as_mut_str(), self.get_digist_replace()).to_mut().split(" ").map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        let mut peptides: HashSet<String> = HashSet::from_iter(peptides_without_missed_cleavages.clone().into_iter().filter(|peptide| return self.is_peptide_in_range(peptide)));
+        // reccuring variables for calculation of missed-cleavages-combinations
+        let mut incl_arr: Vec<bool> = vec![false; peptides.len()];
+        let cleavage_positions: Vec<usize> = (0..peptides.len()).collect();
+        // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
+        for number_of_missed_cleavages in 1..(self.get_max_number_of_missed_cleavages() + 1) {
+            self.digest_internal(&peptides_without_missed_cleavages, &cleavage_positions, number_of_missed_cleavages, &mut incl_arr, 0, &mut peptides);
+        }
+        return peptides;
+    }
 
     /*
      * calculates combination n choose k
@@ -47,7 +70,7 @@ pub trait DigstEnzym {
     }
 
     /*
-     * adds the peptides in missed_cleavage_combination to current_peptide_set. the values in missed_cleavages_combination represents the missed split positions
+     * adds the peptides in missed_cleavage_combination to current_peptide_set. the values in missed_cleavages_combination represents the missed cleavage positions
      * lets assume missed cleavages is something like [1,4,7], the function will add peptide on position 1, 4 and 7 to current_peptide_set.
      * if two or more indices in missed_cleavage_combination are sequent, the function will glue the peptides together.
      * lets assume missed cleavages is something like [1,2,6], the function will glue the peptides 1, 2 and 3 together and add the contatenation to current_peptide_set also peptide 6 concatenated with 7 will added.
@@ -68,44 +91,58 @@ pub trait DigstEnzym {
              * if i + 1 is less then the length of missed_cleavage_combination and the next missed cleavages position is NOT sequent to the current
              * add the new_peptide to the results and begin with a new one
              */
-
             if (i + 1) < (missed_cleavage_combination.len()) && missed_cleavage_combination[i+1] != missed_cleavage_combination[i] + 1 {
-                current_peptide_set.insert(new_peptide);
+                // println!("{} => {}", new_peptide, self.is_peptide_in_range(&new_peptide));
+                if self.is_peptide_in_range(&new_peptide) {
+                    current_peptide_set.insert(new_peptide);
+                }
                 new_peptide = String::new();
             }
         }
-        current_peptide_set.insert(new_peptide);
+        // println!("{} => {}", new_peptide, self.is_peptide_in_range(&new_peptide));
+        if self.is_peptide_in_range(&new_peptide) {
+            current_peptide_set.insert(new_peptide);
+        }
+    }
+
+    /*
+     * checks if the passed peptide has the correct length
+     * note: maybe this method ca be beatufied in the feature with https://doc.rust-lang.org/std/ops/struct.Range.html#method.contains
+     */
+    fn is_peptide_in_range(&self, new_peptide: &String) -> bool {
+        return self.get_min_peptide_length() <= new_peptide.len() && new_peptide.len() <= self.get_max_peptide_length()
     }
 }
 
 
 impl DigstEnzym for Trypsin {
-    fn new (missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Trypsin {
+    fn new (max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Trypsin {
         Trypsin {
             digist_regex: regex::Regex::new(r"(?P<before>(K|R))(?P<after>[^P])").unwrap(),
             digest_replace: "$before $after",
-            missed_cleavages: missed_cleavages,
+            max_number_of_missed_cleavages: max_number_of_missed_cleavages,
             min_peptide_length: min_peptide_length,
             max_peptide_length: max_peptide_length
         }
     }
 
-    fn digest(&self, protein: &mut super::protein::Protein) -> HashSet<String> {
-        /*
-         * clone aa_squence and pass it as mutable into replace_all
-         * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
-         * make the result mutable and split it on whitespaces
-         * collect the results as String-vector
-         */
-        let peptides_without_missed_cleavages: Vec<String> = self.digist_regex.replace_all(protein.get_aa_sequence().clone().as_mut_str(), self.digest_replace).to_mut().split(" ").map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
-        let mut peptides: HashSet<String> = HashSet::from_iter(peptides_without_missed_cleavages.clone());
-        // reccuring variables for calculation of missed-cleavages-combinations
-        let mut incl_arr: Vec<bool> = vec![false; peptides.len()];
-        let cleavage_positions: Vec<usize> = (0..peptides.len()).collect();
-        // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
-        for number_of_missed_cleavages in 1..(self.missed_cleavages + 1) {
-            self.digest_internal(&peptides_without_missed_cleavages, &cleavage_positions, number_of_missed_cleavages, &mut incl_arr, 0, &mut peptides);
-        }
-        return peptides;
+    fn get_max_number_of_missed_cleavages(&self) -> usize{
+        return self.max_number_of_missed_cleavages;
+    }
+
+    fn get_digist_regex(&self) -> &regex::Regex {
+        return &self.digist_regex;
+    }
+
+    fn get_digist_replace(&self) -> &'static str {
+        return self.digest_replace;
+    }
+
+    fn get_min_peptide_length(&self) -> usize {
+        return self.min_peptide_length;
+    }
+
+    fn get_max_peptide_length(&self) -> usize {
+        return self.max_peptide_length;
     }
 }
