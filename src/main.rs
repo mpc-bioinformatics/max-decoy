@@ -3,10 +3,10 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
 
-mod bio;
+mod proteomic;
 
-use bio::enzym::{DigestEnzym, Trypsin};
-use bio::protein::Protein;
+use proteomic::utility::enzym::{DigestEnzym, Trypsin};
+use proteomic::models::protein::Protein;
 
 
 fn main() {

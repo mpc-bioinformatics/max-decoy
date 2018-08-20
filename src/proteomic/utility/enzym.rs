@@ -3,6 +3,8 @@ extern crate regex;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
+use proteomic::models::protein::Protein;
+
 pub struct Trypsin {
     digist_regex: regex::Regex,
     digest_replace: &'static str,
@@ -20,7 +22,7 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut super::protein::Protein) -> HashSet<String> {
+    fn digest(&self, protein: &mut Protein) -> HashSet<String> {
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
