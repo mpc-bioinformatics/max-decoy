@@ -34,7 +34,7 @@ fn main() {
                 let mut trypsin: Trypsin = Trypsin::new(3, 1, 50);
                 let peptides = trypsin.digest(&mut protein);
                 for pep in peptides {
-                    println!("{}", pep);
+                    pep.print();
                 }
                 //aa_sequence = String::new();
                 break;
