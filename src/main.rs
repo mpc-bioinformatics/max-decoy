@@ -1,3 +1,5 @@
+extern crate time;
+
 use std::env;
 use std::fs::File;
 use std::io::BufReader;
@@ -27,6 +29,7 @@ fn main() {
 
     let mut peptides: HashSet<Peptide> = HashSet::new();
 
+    let start_time: f64 = time::precise_time_s();
     for line in fasta_file.lines() {
         // trim
         let string_line = line.unwrap().as_mut_str().trim().to_owned()  ;
@@ -36,7 +39,7 @@ fn main() {
             if header.len() > 0 {
                 let mut protein: Protein = Protein::new(header, aa_sequence);
                 // throw error if aa sequence has whitespaces
-                peptides.extend(trypsin.digest(&mut protein));
+                trypsin.digest(&mut protein, &mut peptides);
                 // for pep in &peptides {
                 //     pep.print();
                 // }
@@ -48,6 +51,8 @@ fn main() {
     // process last protein
     let mut protein: Protein = Protein::new(header, aa_sequence);
     // throw error if aa sequence has whitespaces
-    peptides.extend(trypsin.digest(&mut protein));
+    trypsin.digest(&mut protein, &mut peptides);
+    let stop_time: f64 = time::precise_time_s();
     println!("Peptides created: {}", peptides.len());
+    println!("Need {} s", (stop_time - start_time));
 }

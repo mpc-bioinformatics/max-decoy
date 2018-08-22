@@ -24,8 +24,7 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut Protein) -> HashSet<Peptide> {
-        let mut peptides: HashSet<Peptide> = HashSet::new();
+    fn digest(&self, protein: &mut Protein, peptides: &mut HashSet<Peptide>) {
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
@@ -47,8 +46,7 @@ pub trait DigestEnzym {
                 }
             }
             peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
-        }   
-        return peptides;
+        }
     }
 }
 
