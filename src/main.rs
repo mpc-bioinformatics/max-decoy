@@ -37,7 +37,7 @@ fn main() {
             aa_sequence.push_str(&string_line);
         } else {
             if header.len() > 0 {
-                let mut protein: Protein = Protein::new(header, aa_sequence);
+                let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
                 // throw error if aa sequence has whitespaces
                 trypsin.digest(&mut protein, &mut peptides);
                 // for pep in &peptides {
