@@ -3,11 +3,12 @@ use std::hash::{Hash, Hasher};
 use super::postgres::Connection;
 use super::postgres::rows::Rows;
 use super::postgres::Result;
+use super::postgres::stmt::Statement;
 
 use proteomic::utility::amino_acid;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::collection::Collectable;
-use super::postgres::stmt::Statement;
+
 
 pub struct Peptide {
     id: i32,
@@ -21,11 +22,12 @@ pub struct Peptide {
 
 impl Peptide {
     pub fn new(aa_sequence: String, digest_enzym: String, position: usize, number_of_missed_cleavages: i32) -> Peptide {
+        let generalized_aa_sequence: String = Peptide::gerneralize_aa_sequence(&aa_sequence);
         return Peptide{
             id: -1,
-            length: aa_sequence.len() as i32,
-            weight: Peptide::calculate_weight(&aa_sequence),
-            aa_sequence: aa_sequence,
+            length: generalized_aa_sequence.len() as i32,
+            weight: Peptide::calculate_weight(&generalized_aa_sequence),
+            aa_sequence: generalized_aa_sequence,
             digest_enzym: digest_enzym,
             position: position,
             number_of_missed_cleavages: number_of_missed_cleavages
@@ -34,6 +36,10 @@ impl Peptide {
 
     pub fn print(&self) {
         println!("{}\n\tdigested with => {}\n\tpos => {}\n\tmissed_cleavages => {}\n\tweight => {}\n\tlength => {}", self.aa_sequence, self.digest_enzym, self.position, self.number_of_missed_cleavages, self.weight, self.length);
+    }
+
+    fn gerneralize_aa_sequence(aa_sequence: &String) -> String {
+        return aa_sequence.replace("I", "J").replace("L", "J");
     }
 
     fn calculate_weight(aa_sequence: &String) -> f64 {
