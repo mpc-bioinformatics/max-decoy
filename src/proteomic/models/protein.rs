@@ -1,37 +1,131 @@
 extern crate regex;
+use std::hash::{Hash, Hasher};
 
-pub struct Protein{
+use super::postgres::Connection;
+use super::postgres::rows::Rows;
+use super::postgres::Result;
+use super::postgres::stmt::Statement;
+
+use proteomic::models::collection::Collectable;
+use proteomic::models::persistable::Persistable;
+
+pub struct Protein {
+    id: i32,
     accession: String,
     header: String,
-    aa_sequence: String
+    aa_sequence: String,
 }
 
-impl Protein{
+impl Protein {
     pub fn new(header: String, aa_sequence: String) -> Protein {
-        return Protein{
+        return Protein {
+            id: -1,
             accession: Protein::extract_accession_from_header(&header),
             header: header,
-            aa_sequence: aa_sequence
+            aa_sequence: aa_sequence,
         }
     }
+
 
     pub fn extract_accession_from_header(header: &String) -> String {
         return String::from(regex::Regex::new(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}").unwrap().find(header.as_str()).unwrap().as_str())
     }
 
     pub fn get_aa_sequence(&self) -> &String {
-        &self.aa_sequence
+        return &self.aa_sequence;
     }
 
     pub fn get_accession(&self) -> &String {
-        &self.accession
+        return &self.accession;
     }
 
     pub fn get_header(&self) -> &String {
-        &self.accession
+        return &self.header;
     }
 
     pub fn print(&self) {
         println!("{}\n\tAA sequence is {} long.", self.accession, self.aa_sequence.len());
+    }
+
+    pub fn create(&mut self) {
+        let conn = super::get_db_connection();
+        for row in self.insert_query(&conn).unwrap().iter() {
+            let id: i32 = row.get("id");
+            self.id = id;
+            break;
+        }
+    }
+
+    pub fn update(&self) {
+        let conn = super::get_db_connection();
+        self.update_query(&conn);
+    }
+
+    pub fn save(&mut self) {
+        if self.id > 0 {
+            self.update();
+        } else {
+            self.create();
+        }
+    }
+}
+
+impl Persistable for Protein {
+    fn get_id(&self) -> i32 {
+        return self.id;
+    }
+
+    fn get_insert_statement() -> &'static str {
+        return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) RETURNING id";
+    }
+
+    fn insert_query(&self, connection: &Connection) -> Result<Rows> {
+        return connection.query(
+            Protein::get_insert_statement(),
+            &[&self.accession, &self.header, &self.aa_sequence]
+        );
+    }
+    
+    fn insert_statement(&self, prepared_statement: &Statement) {
+        prepared_statement.execute(&[&self.accession, &self.header, &self.aa_sequence]);
+    }
+
+    fn get_update_statement() -> &'static str {
+        return "UPDATE proteins SET accession = $2, header = $3, aa_sequence = $4 WHERE id = $1";
+    }
+
+    fn update_query(&self, connection: &Connection) -> Result<Rows> {
+        return connection.query(
+            Protein::get_update_statement(),
+            &[&self.id, &self.accession, &self.header, &self.aa_sequence]
+        );
+    }
+
+    fn update_statement(&self, prepared_statement: &Statement) {
+        prepared_statement.execute(&[&self.id, &self.accession, &self.header, &self.aa_sequence]);
+    }
+}
+
+impl Collectable for Protein {
+    fn get_collection_identifier(&self) -> &String {
+        return &self.accession;
+    }
+}
+
+
+// PartialEq-implementation to use this type in a HashSet
+impl PartialEq for Protein {
+    fn eq(&self, other: &Protein) -> bool {
+       return self.accession.eq(&other.accession);
+    }
+}
+
+// Eq-implementation to use this type in a HashSet
+impl Eq for Protein {}
+
+// Hash-implementation to use this type in a HashSet
+impl Hash for Protein {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.accession.hash(state);
     }
 }
