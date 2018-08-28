@@ -6,3 +6,5 @@ authors = ["Dirk Winkelhardt <dirk.winkelhardt@gmail.com>"]
 [dependencies]
 regex = "0.2"
 time = "0.1.40"
+postgres = "0.15.2"
+dotenv = "0.13.0"
