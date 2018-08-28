@@ -4,11 +4,11 @@ use std::env;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
-use std::collections::HashSet;
 
 mod proteomic;
 
 use proteomic::utility::enzym::{DigestEnzym, Trypsin};
+use proteomic::models::collection::Collection;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 
@@ -27,7 +27,8 @@ fn main() {
     let mut aa_sequence = String::new();
     let trypsin: Trypsin = Trypsin::new(3, 1, 50);
 
-    let mut peptides: HashSet<Peptide> = HashSet::new();
+    let mut peptides: Collection<Peptide> = Collection::new();
+    let mut proteins: Collection<Protein> = Collection::new();
 
     let start_time: f64 = time::precise_time_s();
     for line in fasta_file.lines() {
@@ -40,10 +41,14 @@ fn main() {
                 let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
                 // throw error if aa sequence has whitespaces
                 trypsin.digest(&mut protein, &mut peptides);
-                // for pep in &peptides {
-                //     pep.print();
-                // }
+                proteins.add(protein);
                 aa_sequence = String::new();
+                // if proteins.len() == 1000 {
+                //     peptides.save();
+                //     peptides.clear();
+                //     proteins.save();
+                //     proteins.clear();
+                // }
             }
             header = string_line;
         }
@@ -52,7 +57,10 @@ fn main() {
     let mut protein: Protein = Protein::new(header, aa_sequence);
     // throw error if aa sequence has whitespaces
     trypsin.digest(&mut protein, &mut peptides);
+    peptides.save();
+    proteins.save();
     let stop_time: f64 = time::precise_time_s();
-    println!("Peptides created: {}", peptides.len());
+    println!("Proteins processed: {}", proteins.len());
+    println!("  Peptides created: {}", peptides.len());
     println!("Need {} s", (stop_time - start_time));
 }

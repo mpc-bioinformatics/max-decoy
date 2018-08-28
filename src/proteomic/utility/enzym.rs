@@ -1,6 +1,6 @@
 extern crate regex;
 
-use std::collections::HashSet;
+use proteomic::models::collection::Collection;
 
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
@@ -24,7 +24,7 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut Protein, peptides: &mut HashSet<Peptide>) {
+    fn digest(&self, protein: &mut Protein, peptides: &mut Collection<Peptide>) {
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
@@ -40,7 +40,7 @@ pub trait DigestEnzym {
                 let temp_idx: usize = peptide_idx + number_of_missed_cleavages;
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
-                    peptides.insert(Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages));
+                    peptides.add(Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages as i32));
                 } else {
                     break;
                 }
