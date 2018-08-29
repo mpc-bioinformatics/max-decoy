@@ -17,7 +17,7 @@ pub struct Peptide {
     length: i32,
     position: usize,
     number_of_missed_cleavages: i32,
-    weight: f64
+    weight: i32
 }
 
 impl Peptide {
@@ -42,12 +42,16 @@ impl Peptide {
         return aa_sequence.replace("I", "J").replace("L", "J");
     }
 
-    fn calculate_weight(aa_sequence: &String) -> f64 {
-        let mut weight: f64 = 0.0;
+    fn calculate_weight(aa_sequence: &String) -> i32 {
+        let mut weight: f32 = 0.0;
         for amino_acid_one_letter_code in aa_sequence.as_str().chars() {
             weight += amino_acid::get(amino_acid_one_letter_code).get_mono_mass();
         }
-        return weight;
+        return (weight * 100000.0) as i32;
+    }
+
+    pub fn get_weight(&self) -> f32 {
+        return self.weight as f32 / 1000000.0;
     }
 
     pub fn create(&mut self) {
