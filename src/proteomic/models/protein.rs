@@ -49,7 +49,7 @@ impl Protein {
 
     pub fn create(&mut self) {
         let conn = super::get_db_connection();
-        for row in self.insert_query(&conn).unwrap().iter() {
+        for row in self.execute_insert_query(&conn).unwrap().iter() {
             let id: i32 = row.get("id");
             self.id = id;
             break;
@@ -58,7 +58,7 @@ impl Protein {
 
     pub fn update(&self) {
         let conn = super::get_db_connection();
-        self.update_query(&conn);
+        self.execute_update_query(&conn);
     }
 
     pub fn save(&mut self) {
@@ -67,6 +67,14 @@ impl Protein {
         } else {
             self.create();
         }
+    }
+
+    pub fn exists(&self) -> bool {
+        let conn = super::get_db_connection();
+        for row in self.exists_query(&conn).unwrap().iter() {
+            return row.get::<usize, bool>(0);
+        }
+        return false;
     }
 }
 
@@ -79,14 +87,14 @@ impl Persistable for Protein {
         return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id";
     }
 
-    fn insert_query(&self, connection: &Connection) -> Result<Rows> {
+    fn execute_insert_query(&self, connection: &Connection) -> Result<Rows> {
         return connection.query(
             Protein::get_insert_statement(),
             &[&self.accession, &self.header, &self.aa_sequence]
         );
     }
     
-    fn insert_statement(&self, prepared_statement: &Statement) {
+    fn execute_insert_statement(&self, prepared_statement: &Statement) {
         prepared_statement.execute(&[&self.accession, &self.header, &self.aa_sequence]);
     }
 
@@ -94,15 +102,26 @@ impl Persistable for Protein {
         return "UPDATE proteins SET accession = $2, header = $3, aa_sequence = $4 WHERE id = $1";
     }
 
-    fn update_query(&self, connection: &Connection) -> Result<Rows> {
+    fn execute_update_query(&self, connection: &Connection) -> Result<Rows> {
         return connection.query(
             Protein::get_update_statement(),
             &[&self.id, &self.accession, &self.header, &self.aa_sequence]
         );
     }
 
-    fn update_statement(&self, prepared_statement: &Statement) {
+    fn execute_update_statement(&self, prepared_statement: &Statement) {
         prepared_statement.execute(&[&self.id, &self.accession, &self.header, &self.aa_sequence]);
+    }
+
+    fn get_exists_statement() -> &'static str {
+        return "SELECT EXISTS(SELECT 1 FROM proteins WHERE accession = $1)";
+    }
+
+    fn exists_query(&self, connection: &Connection) -> Result<Rows> {
+        return connection.query(
+            Protein::get_exists_statement(),
+            &[&self.accession]
+        );
     }
 }
 
