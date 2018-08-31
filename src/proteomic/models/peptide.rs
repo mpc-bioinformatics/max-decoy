@@ -54,9 +54,13 @@ impl Peptide {
         return self.weight as f32 / 1000000.0;
     }
 
+    pub fn get_aa_sequence(&self) -> &String {
+        return &self.aa_sequence;
+    }
+
     pub fn create(&mut self) {
         let conn = super::get_db_connection();
-        for row in self.insert_query(&conn).unwrap().iter() {
+        for row in self.execute_insert_query(&conn).unwrap().iter() {
             let id: i32 = row.get("id");
             self.id = id;
             break;
@@ -65,7 +69,7 @@ impl Peptide {
 
     pub fn update(&self) {
         let conn = super::get_db_connection();
-        self.update_query(&conn);
+        self.execute_update_query(&conn);
     }
 
     pub fn save(&mut self) {
@@ -74,6 +78,14 @@ impl Peptide {
         } else {
             self.create();
         }
+    }
+
+    pub fn exists(&self) -> bool {
+        let conn = super::get_db_connection();
+        for row in self.exists_query(&conn).unwrap().iter() {
+            return row.get::<usize, bool>(0);
+        }
+        return false;
     }
 }
 
@@ -86,14 +98,14 @@ impl Persistable for Peptide {
         return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id";
     }
 
-    fn insert_query(&self, connection: &Connection) -> Result<Rows> {
+    fn execute_insert_query(&self, connection: &Connection) -> Result<Rows> {
         return connection.query(
             Peptide::get_insert_statement(),
-            &[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight]
+            &[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
         );
     }
 
-    fn insert_statement(&self, prepared_statement: &Statement) {
+    fn execute_insert_statement(&self, prepared_statement: &Statement) {
         prepared_statement.execute(&[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]);
     }
 
@@ -101,15 +113,26 @@ impl Persistable for Peptide {
         return "UPDATE peptides SET aa_sequence = $2, digest_enzym = $3, number_of_missed_cleavages = $4, weight = $5, length = $6 WHERE id = $1";
     }
 
-    fn update_query(&self, connection: &Connection) -> Result<Rows> {
+    fn execute_update_query(&self, connection: &Connection) -> Result<Rows> {
         return connection.query(
             Peptide::get_update_statement(),
-            &[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight]
+            &[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
         );
     }
 
-    fn update_statement(&self, prepared_statement: &Statement) {
+    fn execute_update_statement(&self, prepared_statement: &Statement) {
         prepared_statement.execute(&[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]);
+    }
+
+    fn get_exists_statement() -> &'static str {
+        return "SELECT EXISTS(SELECT 1 FROM peptides WHERE aa_sequence = $1)";
+    }
+
+    fn exists_query(&self, connection: &Connection) -> Result<Rows> {
+        return connection.query(
+            Peptide::get_exists_statement(),
+            &[&self.aa_sequence]
+        );
     }
 }
 
@@ -122,7 +145,7 @@ impl Collectable for Peptide {
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for Peptide {
     fn eq(&self, other: &Peptide) -> bool {
-       return self.aa_sequence.eq(&other.aa_sequence);
+       return self.aa_sequence == *other.get_aa_sequence();
     }
 }
 
