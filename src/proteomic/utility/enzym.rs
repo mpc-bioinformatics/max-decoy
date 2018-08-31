@@ -31,7 +31,7 @@ pub trait DigestEnzym {
          * make the result mutable and split it on whitespaces
          * collect the results as String-vector
          */
-        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().replace_all(protein.get_aa_sequence().clone().as_mut_str(), self.get_digest_replace()).to_mut().split(" ").map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        let mut peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().replace_all(protein.get_aa_sequence().clone().as_mut_str(), self.get_digest_replace()).to_mut().split(" ").map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
         let mut peptide_position: usize = 0;
         // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
         'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
@@ -40,13 +40,19 @@ pub trait DigestEnzym {
                 let temp_idx: usize = peptide_idx + number_of_missed_cleavages;
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
-                    peptides.add(Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages as i32));
+                    if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
+                        peptides.add(Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages as i32));
+                    }
                 } else {
                     break;
                 }
             }
             peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
         }
+    }
+
+    fn is_aa_sequence_in_range(&self, aa_sequence: &String) -> bool {
+        return self.get_min_peptide_length() <= aa_sequence.len() && aa_sequence.len() <= self.get_max_peptide_length();
     }
 }
 
