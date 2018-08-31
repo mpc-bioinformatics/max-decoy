@@ -41,19 +41,22 @@ impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable
         return self.objects.len();
     }
 
+    pub fn get(&self, identifier: &String) -> Option<&T>{
+        return self.objects.get(identifier);
+    }
+
     pub fn save(&self) {
         let conn = super::get_db_connection();
         let transaction = conn.transaction().unwrap();
-        let prepared_insert_statement = transaction.prepare(T::get_insert_statement()).unwrap();
-        let prepared_update_statement = transaction.prepare(T::get_update_statement()).unwrap();
+        let prepared_insert_statement = transaction.prepare_cached(T::get_insert_statement()).unwrap();
+        let prepared_update_statement = transaction.prepare_cached(T::get_update_statement()).unwrap();
         for (key, t_object) in self.objects.iter() {
             if t_object.get_id() > 0 {
-                t_object.update_statement(&prepared_update_statement);
+                t_object.execute_update_statement(&prepared_update_statement);
             } else {
-                t_object.insert_statement(&prepared_insert_statement);
+                t_object.execute_insert_statement(&prepared_insert_statement);
             }
         }
         transaction.commit();
     }
-
 }
