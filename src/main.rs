@@ -44,7 +44,7 @@ fn main() {
                 trypsin.digest(&mut protein, &mut peptides);
                 proteins.add(protein);
                 aa_sequence = String::new();
-                if peptides.len() == 100000 {
+                if peptides.len() > 250000 {
                     overall_protein_counter += proteins.len();
                     overall_peptide_counter += peptides.len();
                     proteins.save();
