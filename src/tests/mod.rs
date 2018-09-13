@@ -1,4 +1,5 @@
 mod models;
+mod digest;
 
 #[test]
 pub fn run() {
@@ -8,4 +9,7 @@ pub fn run() {
     // protein tests
     models::peptide::test_equality();
     models::peptide::test_unequlity();
+    // collection tests
+    models::collection::test_len_with_peptides();
+    digest::test_digestion();
 }
