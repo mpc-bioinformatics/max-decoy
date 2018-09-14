@@ -77,5 +77,7 @@ fn test_digestion() {
     }
 
     // check if the length of the collection is the same
+    println!("peptides_from_fasta_file => {}", peptides_from_fasta.len());
+    println!("peptides_from_tsv_file => {}", peptides_from_tsv.len());
     assert_eq!(peptides_from_fasta.len(), peptides_from_tsv.len());
 }

@@ -1,4 +1,4 @@
-extern crate regex;
+extern crate onig;
 
 use proteomic::models::collection::Collection;
 
@@ -7,7 +7,7 @@ use proteomic::models::peptide::Peptide;
 
 pub struct Trypsin {
     name: String,
-    digist_regex: regex::Regex,
+    digist_regex: onig::Regex,
     digest_replace: &'static str,
     max_number_of_missed_cleavages: usize,
     // replace this with a range in the feature: https://doc.rust-lang.org/std/ops/struct.Range.html#method.contains
@@ -19,7 +19,7 @@ pub trait DigestEnzym {
     fn new(max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Self;
     fn get_name(&self) -> &str;
     fn get_max_number_of_missed_cleavages(&self) -> usize;
-    fn get_digest_regex(&self) -> &regex::Regex;
+    fn get_digest_regex(&self) -> &onig::Regex;
     fn get_digest_replace(&self) -> &'static str;
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
@@ -31,7 +31,7 @@ pub trait DigestEnzym {
          * make the result mutable and split it on whitespaces
          * collect the results as String-vector
          */
-        let mut peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().replace_all(protein.get_aa_sequence().clone().as_mut_str(), self.get_digest_replace()).to_mut().split(" ").map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        let mut peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
         let mut peptide_position: usize = 0;
         // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
         'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
@@ -61,7 +61,7 @@ impl DigestEnzym for Trypsin {
     fn new (max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Trypsin {
         Trypsin {
             name: String::from("Trypsin"),
-            digist_regex: regex::Regex::new(r"(?P<before>(K|R))(?P<after>[^P])").unwrap(),
+            digist_regex: onig::Regex::new(r"(?<=[KR])(?!P)").unwrap(),
             digest_replace: "$before $after",
             max_number_of_missed_cleavages: max_number_of_missed_cleavages,
             min_peptide_length: min_peptide_length,
@@ -77,7 +77,7 @@ impl DigestEnzym for Trypsin {
         return self.max_number_of_missed_cleavages;
     }
 
-    fn get_digest_regex(&self) -> &regex::Regex {
+    fn get_digest_regex(&self) -> &onig::Regex {
         return &self.digist_regex;
     }
 
