@@ -94,7 +94,7 @@ impl Persistable for Protein {
     }
 
     fn get_insert_statement() -> &'static str {
-        return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id";
+        return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING";
     }
 
     fn execute_insert_query(&self, connection: &Connection) -> Result<Rows> {
