@@ -11,6 +11,7 @@ use proteomic::utility::enzym::{DigestEnzym, Trypsin};
 use proteomic::models::collection::Collection;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
+use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 
 mod tests;
 
@@ -74,6 +75,7 @@ fn main() {
 
     let mut peptides: Collection<Peptide> = Collection::new();
     let mut proteins: Collection<Protein> = Collection::new();
+    let mut peptide_protein_associations: Collection<PeptideProteinAssociation> = Collection::new();
     let mut overall_protein_counter: usize = 0;
     let mut overall_peptide_counter: usize = 0;
 
@@ -91,7 +93,7 @@ fn main() {
             if header.len() > 0 {
                 let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
                 // throw error if aa sequence has whitespaces
-                trypsin.digest(&mut protein, &mut peptides);
+                trypsin.digest(&mut protein, &mut peptides, &mut peptide_protein_associations);
                 proteins.add(protein);
                 aa_sequence = String::new();
                 if peptides.len() > 250000 {
@@ -99,9 +101,11 @@ fn main() {
                     overall_peptide_counter += peptides.len();
                     proteins.save();
                     peptides.save();
+                    peptide_protein_associations.save();
                     update_start_line_file(current_line);
                     proteins.clear();
                     peptides.clear();
+                    peptide_protein_associations.clear();
                 }
             }
             header = string_line;
@@ -111,12 +115,13 @@ fn main() {
     // process last protein
     let mut protein: Protein = Protein::new(header, aa_sequence);
     // throw error if aa sequence has whitespaces
-    trypsin.digest(&mut protein, &mut peptides);
+    trypsin.digest(&mut protein, &mut peptides, &mut peptide_protein_associations);
     proteins.add(protein);
     overall_protein_counter += proteins.len();
     overall_peptide_counter += peptides.len();
     peptides.save();
     proteins.save();
+    peptide_protein_associations.save();
     remove_start_line_file();
     let stop_time: f64 = time::precise_time_s();
     println!("Proteins processed: {}", overall_protein_counter);

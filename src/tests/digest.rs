@@ -11,6 +11,8 @@ use proteomic::utility::enzym::{DigestEnzym, Trypsin};
 use proteomic::models::collection::Collection;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
+use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
+
 
 #[test]
 #[ignore]
@@ -30,6 +32,7 @@ fn test_digestion() {
     let trypsin: Trypsin = Trypsin::new(2, 6, 50);
 
     let mut peptides_from_fasta: Collection<Peptide> = Collection::new();
+    let mut peptide_protein_associations: Collection<PeptideProteinAssociation> = Collection::new();
 
     for line in fasta_file.lines() {
         // trim
@@ -40,7 +43,7 @@ fn test_digestion() {
             if header.len() > 0 {
                 let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
                 // throw error if aa sequence has whitespaces
-                trypsin.digest(&mut protein, &mut peptides_from_fasta);
+                trypsin.digest(&mut protein, &mut peptides_from_fasta, &mut peptide_protein_associations);
                 aa_sequence = String::new();
             }
             header = string_line;
@@ -49,7 +52,7 @@ fn test_digestion() {
     // process last protein
     let mut protein: Protein = Protein::new(header, aa_sequence);
     // throw error if aa sequence has whitespaces
-    trypsin.digest(&mut protein, &mut peptides_from_fasta);
+    trypsin.digest(&mut protein, &mut peptides_from_fasta, &mut peptide_protein_associations);
 
 
     // read peptides from tsv files which is digested by a reference program
@@ -78,5 +81,7 @@ fn test_digestion() {
     // check if the length of the collection is the same
     println!("peptides_from_fasta_file => {}", peptides_from_fasta.len());
     println!("peptides_from_tsv_file => {}", peptides_from_tsv.len());
+    println!("peptide_protein_associations => {}", peptide_protein_associations.len());
     assert_eq!(peptides_from_fasta.len(), peptides_from_tsv.len());
+    assert_eq!(peptides_from_fasta.len(), peptide_protein_associations.len());
 }
