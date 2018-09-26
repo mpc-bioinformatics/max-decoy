@@ -19,10 +19,12 @@ impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable
         }
     }
 
-    pub fn add(&mut self, item: T) {
+    pub fn add(&mut self, item: T) -> bool {
         if !self.contains(&item) {
             self.objects.insert(item.get_collection_identifier().clone(), item);
+            return true;
         }
+        return false;
     }
 
     pub fn remove(&mut self, item: &T) {
