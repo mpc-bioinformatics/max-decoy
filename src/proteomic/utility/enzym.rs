@@ -4,6 +4,7 @@ use proteomic::models::collection::Collection;
 
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
+use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 
 pub struct Trypsin {
     name: String,
@@ -24,7 +25,7 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut Protein, peptides: &mut Collection<Peptide>) {
+    fn digest(&self, protein: &mut Protein, peptides: &mut Collection<Peptide>, peptide_protein_associations: &mut Collection<PeptideProteinAssociation>) {
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
@@ -41,7 +42,11 @@ pub trait DigestEnzym {
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                        peptides.add(Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages as i32));
+                        let new_peptide = Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages as i32);
+                        let new_peptide_protein_association = PeptideProteinAssociation::new(&new_peptide, &protein);
+                        if peptides.add(new_peptide) {
+                            peptide_protein_associations.add(new_peptide_protein_association);
+                        }
                     }
                 } else {
                     break;
