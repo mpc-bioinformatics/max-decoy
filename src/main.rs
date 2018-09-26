@@ -112,6 +112,7 @@ fn main() {
     let mut protein: Protein = Protein::new(header, aa_sequence);
     // throw error if aa sequence has whitespaces
     trypsin.digest(&mut protein, &mut peptides);
+    proteins.add(protein);
     overall_protein_counter += proteins.len();
     overall_peptide_counter += peptides.len();
     peptides.save();
