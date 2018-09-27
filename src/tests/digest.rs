@@ -31,7 +31,6 @@ fn test_digestion() {
 
     let mut peptides_from_fasta: Collection<Peptide> = Collection::new();
 
-    let start_time: f64 = time::precise_time_s();
     for line in fasta_file.lines() {
         // trim
         let string_line = line.unwrap().as_mut_str().trim().to_owned()  ;
