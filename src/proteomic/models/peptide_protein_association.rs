@@ -1,9 +1,11 @@
+extern crate postgres;
+
 use std::hash::{Hash, Hasher};
 
-use super::postgres::Connection;
-use super::postgres::rows::Rows;
-use super::postgres::Result;
-use super::postgres::stmt::Statement;
+use self::postgres::Connection;
+use self::postgres::rows::Rows;
+use self::postgres::Result;
+use self::postgres::stmt::Statement;
 
 use proteomic::models::peptide::Peptide;
 use proteomic::models::protein::Protein;
@@ -59,14 +61,12 @@ impl PeptideProteinAssociation {
         return &self.protein_accession;
     }
 
-    pub fn create(&mut self) {
-        let conn = super::get_db_connection();
+    pub fn create(&mut self, conn: &Connection) {
         self.execute_insert_query(&conn);
     }
 
 
-    pub fn exists(&self) -> bool {
-        let conn = super::get_db_connection();
+    pub fn exists(&self, conn: &Connection) -> bool {
         for row in self.exists_query(&conn).unwrap().iter() {
             return row.get::<usize, bool>(0);
         }
@@ -78,7 +78,7 @@ impl Persistable for PeptideProteinAssociation {
     fn get_id(&self) -> i32 {
         return 0;
     }
-    
+
     fn get_insert_statement() -> &'static str {
         return "INSERT INTO peptides_proteins (peptide_aa_sequence, protein_accession) VALUES ($1, $2) ON CONFLICT DO NOTHING";
         // return "INSERT INTO peptides_proteins (peptide_id, protein_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id";
@@ -131,7 +131,7 @@ impl Persistable for PeptideProteinAssociation {
 
 impl Collectable for PeptideProteinAssociation {
     fn get_collection_identifier(&self) -> &String {
-      return &self.collection_identifier;  
+      return &self.collection_identifier;
     }
 }
 
