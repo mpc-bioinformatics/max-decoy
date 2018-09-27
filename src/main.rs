@@ -1,4 +1,6 @@
 extern crate time;
+extern crate postgres;
+extern crate dotenv;
 
 use std::env;
 use std::fs::File;
@@ -15,6 +17,11 @@ use proteomic::models::peptide::Peptide;
 mod tests;
 
 const START_LINE_FILE_PATH: &str = "./start_line.txt";
+
+fn get_database_url() -> String {
+    dotenv::dotenv().ok();
+    return env::var("PGSQL_URL").expect("Postgresql-Database-URL 'PGSQL_URL' must be set ");
+}
 
 fn start_line_file_exists() -> bool {
     return Path::new(START_LINE_FILE_PATH).is_file();
@@ -61,6 +68,8 @@ fn main() {
 
     println!("use fasta file {}...", filename);
 
+    let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+
     let fasta_file = File::open(filename).expect("fasta file not found");
     let fasta_file = BufReader::new(fasta_file);
 
@@ -79,7 +88,7 @@ fn main() {
 
     let start_time: f64 = time::precise_time_s();
     for line in fasta_file.lines() {
-        if current_line < start_line { 
+        if current_line < start_line {
             current_line += 1;
             continue;
         }
@@ -97,8 +106,8 @@ fn main() {
                 if peptides.len() > 250000 {
                     overall_protein_counter += proteins.len();
                     overall_peptide_counter += peptides.len();
-                    proteins.save();
-                    peptides.save();
+                    proteins.save(&database_connection);
+                    peptides.save(&database_connection);
                     update_start_line_file(current_line);
                     proteins.clear();
                     peptides.clear();
@@ -115,8 +124,8 @@ fn main() {
     proteins.add(protein);
     overall_protein_counter += proteins.len();
     overall_peptide_counter += peptides.len();
-    peptides.save();
-    proteins.save();
+    peptides.save(&database_connection);
+    proteins.save(&database_connection);
     remove_start_line_file();
     let stop_time: f64 = time::precise_time_s();
     println!("Proteins processed: {}", overall_protein_counter);

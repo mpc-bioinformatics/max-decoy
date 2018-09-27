@@ -1,3 +1,6 @@
+// external crates
+extern crate postgres;
+
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -45,8 +48,7 @@ impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable
         return self.objects.get(identifier);
     }
 
-    pub fn save(&self) {
-        let conn = super::get_db_connection();
+    pub fn save(&self, conn: &postgres::Connection) {
         let transaction = conn.transaction().unwrap();
         let prepared_insert_statement = transaction.prepare_cached(T::get_insert_statement()).unwrap();
         //let prepared_update_statement = transaction.prepare_cached(T::get_update_statement()).unwrap();

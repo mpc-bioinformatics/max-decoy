@@ -58,31 +58,28 @@ impl Peptide {
         return &self.aa_sequence;
     }
 
-    pub fn create(&mut self) {
-        let conn = super::get_db_connection();
-        for row in self.execute_insert_query(&conn).unwrap().iter() {
+    pub fn create(&mut self, conn: &Connection) {
+        for row in self.execute_insert_query(conn).unwrap().iter() {
             let id: i32 = row.get("id");
             self.id = id;
             break;
         }
     }
 
-    pub fn update(&self) {
-        let conn = super::get_db_connection();
-        self.execute_update_query(&conn);
+    pub fn update(&self, conn: &Connection) {
+        self.execute_update_query(conn);
     }
 
-    pub fn save(&mut self) {
+    pub fn save(&mut self, conn: &Connection) {
         if self.id > 0 {
-            self.update();
+            self.update(conn);
         } else {
-            self.create();
+            self.create(conn);
         }
     }
 
-    pub fn exists(&self) -> bool {
-        let conn = super::get_db_connection();
-        for row in self.exists_query(&conn).unwrap().iter() {
+    pub fn exists(&self, conn: &Connection) -> bool {
+        for row in self.exists_query(conn).unwrap().iter() {
             return row.get::<usize, bool>(0);
         }
         return false;
@@ -93,7 +90,7 @@ impl Persistable for Peptide {
     fn get_id(&self) -> i32 {
         return self.id;
     }
-    
+
     fn get_insert_statement() -> &'static str {
         return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING id";
     }

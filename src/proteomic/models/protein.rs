@@ -57,8 +57,7 @@ impl Protein {
         println!("{}\n\tAA sequence is {} long.", self.accession, self.aa_sequence.len());
     }
 
-    pub fn create(&mut self) {
-        let conn = super::get_db_connection();
+    pub fn create(&mut self, conn: &Connection) {
         for row in self.execute_insert_query(&conn).unwrap().iter() {
             let id: i32 = row.get("id");
             self.id = id;
@@ -66,21 +65,19 @@ impl Protein {
         }
     }
 
-    pub fn update(&self) {
-        let conn = super::get_db_connection();
+    pub fn update(&self, conn: &Connection) {
         self.execute_update_query(&conn);
     }
 
-    pub fn save(&mut self) {
+    pub fn save(&mut self, conn: &Connection) {
         if self.id > 0 {
-            self.update();
+            self.update(conn);
         } else {
-            self.create();
+            self.create(conn);
         }
     }
 
-    pub fn exists(&self) -> bool {
-        let conn = super::get_db_connection();
+    pub fn exists(&self, conn: &Connection) -> bool {
         for row in self.exists_query(&conn).unwrap().iter() {
             return row.get::<usize, bool>(0);
         }
@@ -103,7 +100,7 @@ impl Persistable for Protein {
             &[&self.accession, &self.header, &self.aa_sequence]
         );
     }
-    
+
     fn execute_insert_statement(&self, prepared_statement: &Statement) {
         prepared_statement.execute(&[&self.accession, &self.header, &self.aa_sequence]);
     }
