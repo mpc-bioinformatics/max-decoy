@@ -1,4 +1,5 @@
-extern crate regex;
+extern crate onig;
+
 use std::hash::{Hash, Hasher};
 
 use super::postgres::Connection;
@@ -28,7 +29,16 @@ impl Protein {
 
 
     pub fn extract_accession_from_header(header: &String) -> String {
-        return String::from(regex::Regex::new(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}").unwrap().find(header.as_str()).unwrap().as_str())
+        // return String::from(Regex::new(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}").unwrap().find(header.as_str()).unwrap().as_str())
+        // onigurma has nothing like the original regex::Regex.find
+        let accession_regex = onig::Regex::new(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}").unwrap();
+        let pos = accession_regex.find(header.as_str());
+        match pos {
+            Some((beg, end)) =>
+                return String::from(&header[beg..end]),
+            None =>
+                return String::new()
+        }
     }
 
     pub fn get_aa_sequence(&self) -> &String {

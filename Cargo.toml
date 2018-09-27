@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Dirk Winkelhardt <dirk.winkelhardt@gmail.com>"]
 
 [dependencies]
-regex = "0.2"
+onig = "4.2.0"
 time = "0.1.40"
 postgres = "0.15.2"
 dotenv = "0.13.0"

@@ -11,6 +11,8 @@ use proteomic::models::collection::Collection;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 
+mod tests;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -68,4 +70,9 @@ fn main() {
     println!("Proteins processed: {}", overall_protein_counter);
     println!("  Peptides created: {}", overall_peptide_counter);
     println!("Need {} s", (stop_time - start_time));
+}
+
+#[cfg(test)]
+fn test() {
+    tests::run();
 }
