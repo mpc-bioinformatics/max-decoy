@@ -5,7 +5,6 @@ CREATE TABLE proteins (
     aa_sequence text NOT NULL
 );
 
-CREATE INDEX protein_id_idx ON proteins (id);
 CREATE INDEX protein_accession_idx ON proteins (accession);
 
 
@@ -18,6 +17,5 @@ CREATE TABLE peptides (
     digest_enzym varchar(60) NOT NULL
 );
 
-CREATE INDEX peptide_id_idx ON peptides (id);
 CREATE INDEX peptide_weight_idx ON peptides (weight);
 CREATE INDEX peptide_length_idx ON peptides (length);
