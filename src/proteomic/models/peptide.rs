@@ -94,7 +94,7 @@ impl Persistable for Peptide {
     }
 
     fn get_insert_statement() -> &'static str {
-        return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING";
+        return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (aa_sequence) DO NOTHING";
     }
 
     fn execute_insert_query(&self, connection: &Connection) -> Result<Rows> {
