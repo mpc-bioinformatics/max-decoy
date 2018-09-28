@@ -17,6 +17,7 @@ CREATE TABLE peptides (
     digest_enzym varchar(60) NOT NULL
 );
 
+CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
 CREATE INDEX peptide_weight_idx ON peptides (weight);
 CREATE INDEX peptide_length_idx ON peptides (length);
 
