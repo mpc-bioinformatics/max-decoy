@@ -22,10 +22,9 @@ CREATE INDEX peptide_weight_idx ON peptides (weight);
 CREATE INDEX peptide_length_idx ON peptides (length);
 
 CREATE TABLE peptides_proteins (
-    peptide_aa_sequence varchar(60),
-    protein_accession varchar(10),
-    PRIMARY KEY (peptide_aa_sequence, protein_accession)
-
+    peptide_id INTEGER,
+    protein_id INTEGER,
+    PRIMARY KEY (peptide_id, protein_id)
 );
 
 
@@ -60,10 +59,10 @@ AS $$
         CREATE INDEX peptide_length_idx ON peptides (length);
 
         CREATE TABLE peptides_proteins (
-            peptide_aa_sequence varchar(60),
-            protein_accession varchar(10),
-            PRIMARY KEY (peptide_aa_sequence, protein_accession)
-
+            peptide_id INTEGER,
+            protein_id INTEGER,
+            PRIMARY KEY (peptide_id, protein_id)
         );
+
     END;
 $$ LANGUAGE plpgsql;

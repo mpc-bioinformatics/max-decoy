@@ -1,6 +1,7 @@
 extern crate onig;
+extern crate postgres;
 
-use proteomic::models::collection::Collection;
+use std::collections::HashSet;
 
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
@@ -25,14 +26,14 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut Protein, peptides: &mut Collection<Peptide>, peptide_protein_associations: &mut Collection<PeptideProteinAssociation>) {
+    fn digest(&self, protein: &mut Protein, peptides: &mut HashSet<Peptide>, database_connection: &postgres::Connection) {
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
          * make the result mutable and split it on whitespaces
          * collect the results as String-vector
          */
-        let mut peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
         let mut peptide_position: usize = 0;
         // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
         'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
@@ -42,11 +43,9 @@ pub trait DigestEnzym {
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                        let new_peptide = Peptide::new(new_peptide_aa_sequence.clone(), String::from(self.get_name()), peptide_position, number_of_missed_cleavages as i32);
-                        let new_peptide_protein_association = PeptideProteinAssociation::new(&new_peptide, &protein);
-                        if peptides.add(new_peptide) {
-                            peptide_protein_associations.add(new_peptide_protein_association);
-                        }
+                        let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_name().to_owned(), number_of_missed_cleavages as i32);
+                        peptide.save(&database_connection);
+                        peptides.insert(peptide);
                     }
                 } else {
                     break;

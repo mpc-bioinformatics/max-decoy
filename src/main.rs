@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
 use std::path::Path;
+use std::collections::HashSet;
 
 mod proteomic;
 use proteomic::utility::enzym::{DigestEnzym, Trypsin};
@@ -62,6 +63,19 @@ fn remove_start_line_file() -> bool {
     return false;
 }
 
+fn process_protein(database_connection: &postgres::Connection, trypsin: &Trypsin, protein: &mut Protein) -> usize {
+    protein.save(&database_connection);
+    println!("{}", protein.to_string());
+    let mut peptides: HashSet<Peptide> = HashSet::new();
+    // throw error if aa sequence has whitespaces
+    trypsin.digest(protein, &mut peptides, database_connection);
+    for peptide in peptides.iter() {
+        println!("{}", peptide.to_string());
+        PeptideProteinAssociation::new(&peptide, &protein).create(&database_connection)
+    }
+    return peptides.len();
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -70,6 +84,10 @@ fn main() {
     println!("use fasta file {}...", filename);
 
     let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+
+    let fasta_file = File::open(filename).expect("fasta file not found");
+    let fasta_file = BufReader::new(fasta_file);
+    println!("#lines in fasta file = {}...", fasta_file.lines().count());
 
     let fasta_file = File::open(filename).expect("fasta file not found");
     let fasta_file = BufReader::new(fasta_file);
@@ -82,9 +100,7 @@ fn main() {
     let mut aa_sequence = String::new();
     let trypsin: Trypsin = Trypsin::new(2, 6, 50);
 
-    let mut peptides: Collection<Peptide> = Collection::new();
-    let mut proteins: Collection<Protein> = Collection::new();
-    let mut peptide_protein_associations: Collection<PeptideProteinAssociation> = Collection::new();
+
     let mut overall_protein_counter: usize = 0;
     let mut overall_peptide_counter: usize = 0;
 
@@ -101,21 +117,10 @@ fn main() {
         } else {
             if header.len() > 0 {
                 let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
-                // throw error if aa sequence has whitespaces
-                trypsin.digest(&mut protein, &mut peptides, &mut peptide_protein_associations);
-                proteins.add(protein);
+                overall_peptide_counter += process_protein(&database_connection, &trypsin, &mut protein);
+                overall_protein_counter += 1;
+                update_start_line_file(current_line);
                 aa_sequence = String::new();
-                if peptides.len() > 250000 {
-                    overall_protein_counter += proteins.len();
-                    overall_peptide_counter += peptides.len();
-                    proteins.save(&database_connection);
-                    peptides.save(&database_connection);
-                    peptide_protein_associations.save(&database_connection);
-                    update_start_line_file(current_line);
-                    proteins.clear();
-                    peptides.clear();
-                    peptide_protein_associations.clear();
-                }
             }
             header = string_line;
         }
@@ -123,14 +128,8 @@ fn main() {
     }
     // process last protein
     let mut protein: Protein = Protein::new(header, aa_sequence);
-    // throw error if aa sequence has whitespaces
-    trypsin.digest(&mut protein, &mut peptides, &mut peptide_protein_associations);
-    proteins.add(protein);
-    overall_protein_counter += proteins.len();
-    overall_peptide_counter += peptides.len();
-    peptides.save(&database_connection);
-    proteins.save(&database_connection);
-    peptide_protein_associations.save(&database_connection);
+    overall_peptide_counter = process_protein(&database_connection, &trypsin, &mut protein);
+    overall_protein_counter += 1;
     remove_start_line_file();
     let stop_time: f64 = time::precise_time_s();
     println!("Proteins processed: {}", overall_protein_counter);
