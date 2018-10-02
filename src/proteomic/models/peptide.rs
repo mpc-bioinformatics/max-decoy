@@ -107,7 +107,13 @@ impl Peptide {
                         }
                     )
                 } else {
-                    Err("could not create peptide: no return from sql server")
+                    match Peptide::get_by_aa_sequence(conn, generalized_aa_sequence) {
+                        Ok(peptide) => Ok(peptide),
+                        Err(_err) =>{
+                            println!("something is realy odd with '{}'\n\tsql server returned no rows, which means the peptides exists already\n\tbut still the peptides is not returned by its aa sequence", generalized_aa_sequence);
+                            return Err("something odd is with this peptide");
+                        }
+                    }
                 }
             },
             Err(_err) => Err("could not create peptide")
@@ -134,7 +140,10 @@ impl Peptide {
                             self.id = peptide.get_id();
                             return true;
                         },
-                        Err(_err) => return false
+                        Err(err) => {
+                            println!("ERROR peptide.internal_create\n\t{}", err);
+                            return false;
+                        }
                     }
                 }
             }

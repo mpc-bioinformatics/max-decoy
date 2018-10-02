@@ -1,6 +1,8 @@
 extern crate time;
 extern crate postgres;
 extern crate dotenv;
+extern crate num_cpus;
+extern crate threadpool;
 
 use std::env;
 use std::fs::File;
@@ -8,6 +10,11 @@ use std::io::BufReader;
 use std::io::prelude::*;
 use std::path::Path;
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
+
+use threadpool::ThreadPool;
 
 mod proteomic;
 use proteomic::utility::enzym::{DigestEnzym, Trypsin};
@@ -63,27 +70,16 @@ fn remove_start_line_file() -> bool {
     return false;
 }
 
-fn process_protein(database_connection: &postgres::Connection, trypsin: &Trypsin, protein: &mut Protein) -> usize {
-    protein.save(&database_connection);
-    println!("{}", protein.to_string());
-    let mut peptides: HashSet<Peptide> = HashSet::new();
-    // throw error if aa sequence has whitespaces
-    trypsin.digest(protein, &mut peptides, database_connection);
-    for peptide in peptides.iter() {
-        println!("{}", peptide.to_string());
-        PeptideProteinAssociation::new(&peptide, &protein).create(&database_connection)
-    }
-    return peptides.len();
-}
-
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     let filename = &args[1];
-
     println!("use fasta file {}...", filename);
 
-    let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+    let cpus: usize = num_cpus::get() - 1;
+    let thread_pool = ThreadPool::new(cpus);
+    println!("use {} threads...", cpus + 1);
+
 
     let fasta_file = File::open(filename).expect("fasta file not found");
     let fasta_file = BufReader::new(fasta_file);
@@ -101,8 +97,8 @@ fn main() {
     let trypsin: Trypsin = Trypsin::new(2, 6, 50);
 
 
-    let mut overall_protein_counter: usize = 0;
-    let mut overall_peptide_counter: usize = 0;
+    let overall_protein_counter = Arc::new(AtomicUsize::new(0));
+    let overall_peptide_counter = Arc::new(AtomicUsize::new(0));
 
     let start_time: f64 = time::precise_time_s();
     for line in fasta_file.lines() {
@@ -116,10 +112,18 @@ fn main() {
             aa_sequence.push_str(&string_line);
         } else {
             if header.len() > 0 {
-                let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
-                overall_peptide_counter += process_protein(&database_connection, &trypsin, &mut protein);
-                overall_protein_counter += 1;
-                update_start_line_file(current_line);
+                let mut overall_protein_counter_clone = overall_protein_counter.clone();
+                let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
+                let trypsin_clone: Trypsin = trypsin.clone();
+                while thread_pool.queued_count() > 0 {} // wait for free resources
+                thread_pool.execute(move||{
+                    let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+                    let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+                    protein.save(&database_connection);
+                    overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
+                    overall_peptide_counter_clone.fetch_add(trypsin_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
+                });
+                // update_start_line_file(current_line);
                 aa_sequence = String::new();
             }
             header = string_line;
@@ -127,13 +131,15 @@ fn main() {
         current_line += 1;
     }
     // process last protein
-    let mut protein: Protein = Protein::new(header, aa_sequence);
-    overall_peptide_counter = process_protein(&database_connection, &trypsin, &mut protein);
-    overall_protein_counter += 1;
-    remove_start_line_file();
+    let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+    let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+    protein.save(&database_connection);
+    overall_protein_counter.fetch_add(1, Ordering::Relaxed);
+    overall_peptide_counter.fetch_add(trypsin.digest(&database_connection, &mut protein), Ordering::Relaxed);
+    // remove_start_line_file();
     let stop_time: f64 = time::precise_time_s();
-    println!("Proteins processed: {}", overall_protein_counter);
-    println!("  Peptides created: {}", overall_peptide_counter);
+    println!("Proteins processed: {}", overall_protein_counter.load(Ordering::Relaxed));
+    println!("  Peptides created: {}", overall_peptide_counter.load(Ordering::Relaxed));
     println!("Need {} s", (stop_time - start_time));
 }
 

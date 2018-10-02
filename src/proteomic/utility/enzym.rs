@@ -26,7 +26,8 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, protein: &mut Protein, peptides: &mut HashSet<Peptide>, database_connection: &postgres::Connection) {
+    fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein) -> usize {
+        let mut peptides: HashSet<Peptide> = HashSet::new();
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
@@ -34,7 +35,7 @@ pub trait DigestEnzym {
          * collect the results as String-vector
          */
         let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
-        let mut peptide_position: usize = 0;
+        // let mut peptide_position: usize = 0;
         // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
         'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
             let mut new_peptide_aa_sequence: String = String::new();
@@ -51,9 +52,14 @@ pub trait DigestEnzym {
                     break;
                 }
             }
-            peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
+            // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
         }
+        for peptide in peptides.iter() {
+            PeptideProteinAssociation::new(&peptide, &protein).create(&database_connection)
+        }
+        return peptides.len();
     }
+
 
     fn is_aa_sequence_in_range(&self, aa_sequence: &String) -> bool {
         return self.get_min_peptide_length() <= aa_sequence.len() && aa_sequence.len() <= self.get_max_peptide_length();
@@ -95,5 +101,11 @@ impl DigestEnzym for Trypsin {
 
     fn get_max_peptide_length(&self) -> usize {
         return self.max_peptide_length;
+    }
+}
+
+impl Clone for Trypsin {
+    fn clone(&self) -> Trypsin {
+        return Trypsin::new(self.max_number_of_missed_cleavages, self.min_peptide_length, self.max_peptide_length);
     }
 }
