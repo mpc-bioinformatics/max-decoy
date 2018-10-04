@@ -10,13 +10,13 @@ pub trait Collectable {
     fn get_collection_identifier(&self) -> &String;
 }
 
-pub struct Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable {
+pub struct Collection<T> where T: PartialEq + Eq + Hash + Persistable<T, PK, UI> + Collectable {
     objects: HashMap<String, T>
 }
 
-impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable{
+impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable<T, PK, UI> + Collectable{
 
-    pub fn new() -> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable {
+    pub fn new() -> Collection<T> where T: PartialEq + Eq + Hash + Persistable<T, PK, UI> + Collectable {
         return Collection {
             objects: HashMap::new()
         }
@@ -52,7 +52,7 @@ impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable
 
     pub fn save(&self, conn: &postgres::Connection) {
         let transaction = conn.transaction().unwrap();
-        let prepared_insert_statement = transaction.prepare_cached(T::get_insert_statement()).unwrap();
+        let prepared_insert_statement = transaction.prepare_cached(T::get_insert_query()).unwrap();
         //let prepared_update_statement = transaction.prepare_cached(T::get_update_statement()).unwrap();
         for (_key, t_object) in self.objects.iter() {
             // if t_object.get_id() > 0 {
@@ -63,5 +63,6 @@ impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable
             t_object.execute_insert_statement(&prepared_insert_statement);
         }
         transaction.commit();
+        transaction.finish();
     }
 }

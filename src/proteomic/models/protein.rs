@@ -15,6 +15,7 @@ pub struct Protein {
     accession: String,
     header: String,
     aa_sequence: String,
+    is_persisted: bool
 }
 
 impl Protein {
@@ -24,6 +25,7 @@ impl Protein {
             accession: Protein::extract_accession_from_header(&header),
             header: header,
             aa_sequence: aa_sequence,
+            is_persisted: false
         }
     }
 
@@ -60,9 +62,15 @@ impl Protein {
     pub fn to_string(&self) -> String {
         return format!("{}: {}\n\tlen => {}", self.id, self.accession, self.aa_sequence.len());
     }
+}
 
-    pub fn get_by_accession(conn: &Connection, accession: &str) -> Result<Protein, &'static str> {
-        match conn.query("SELECT * FROM proteins WHERE accession = $1 LIMIT 1", &[&accession]) {
+impl Persistable<Protein, i32, String> for Protein {
+    fn get_primary_key(&self) -> &i32 {
+        return &self.id;
+    }
+
+    fn find(conn: &Connection, primary_key: &i32) -> Result<Self, &'static str> {
+        match conn.query("SELECT * FROM proteins WHERE id = $1 LIMIT 1", &[primary_key]) {
             Ok(rows) =>{
                 if rows.len() > 0 {
                     Ok(
@@ -70,124 +78,123 @@ impl Protein {
                             id: rows.get(0).get(0),
                             accession: rows.get(0).get(1),
                             header: rows.get(0).get(2),
-                            aa_sequence: rows.get(0).get(3)
+                            aa_sequence: rows.get(0).get(3),
+                            is_persisted: true
                         }
                     )
                 } else {
-                    Err("protein not found")
+                    Err("peptide not found")
                 }
             },
-            Err(_err) => Err("some error occured: get_by_accession")
+            Err(_err) => Err("some error occured: Peptide::find")
         }
     }
 
-    pub fn create(conn: &Connection, header: &String, aa_sequence: &String) -> Result<Protein, &'static str> {
-        return Protein::internal_create(conn, &Protein::extract_accession_from_header(&header), &header, aa_sequence)
-    }
-
-    fn internal_create(conn: &postgres::Connection, accession: &String, header: &String, aa_sequence: &String) -> Result<Protein, &'static str> {
-        match conn.query(
-            "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT (accession) DO NOTHING RETURNING *",
-            &[&accession, &header, &aa_sequence]
-        ) {
-            Ok(rows) => {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, &'static str> {
+        match conn.query("SELECT * FROM proteins WHERE aa_sequence = $1 LIMIT 1", &[&unique_identifier]) {
+            Ok(rows) =>{
                 if rows.len() > 0 {
                     Ok(
                         Protein{
                             id: rows.get(0).get(0),
                             accession: rows.get(0).get(1),
                             header: rows.get(0).get(2),
-                            aa_sequence: rows.get(0).get(3)
+                            aa_sequence: rows.get(0).get(3),
+                            is_persisted: true
                         }
                     )
                 } else {
-                    Err("could not create protein: no return from sql server")
+                    Err("peptide not found")
                 }
             },
-            Err(_err) => Err("could not create protein")
+            Err(_err) => Err("some error occured: Peptide::find_by_unique_identifier")
         }
     }
 
-    pub fn update(&self, conn: &Connection) {
-        self.execute_update_query(&conn);
-    }
 
-    pub fn save(&mut self, conn: &Connection) -> bool {
-        if !self.is_new() {
-            self.update(conn);
-            return true;
-        } else {
-            match Protein::get_by_accession(conn, &self.accession) {
-                Ok(protein) => {
-                    self.id = protein.get_id();
+    fn create(&self, conn: &postgres::Connection) -> bool {
+        match conn.query(
+            Self::get_insert_query(),
+            &[&self.accession, &self.header, &self.aa_sequence]
+        ) {
+            Ok(rows) => {
+                if rows.len() > 0 {
+                    self.id =  rows.get(0).get(0);
                     return true;
-                },
-                Err(_err) => {
-                    match Protein::internal_create(conn, &self.accession, &self.header, &self.aa_sequence) {
-                        Ok(protein) => {
-                            self.id = protein.get_id();
+                } else {
+                    // zero rows means there are a conflict on update, so the peptides exists already
+                    match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
+                        Ok(peptide) => {
+                            self.id = *peptide.get_primary_key();
+                            self.is_persisted = true;
                             return true;
                         },
-                        Err(_err) => return false
+                        Err(_err) => {
+                            println!("ERROR: something is really odd with peptide {}:\n\tcan't create it nor find it\n", self.aa_sequence);
+                            return false;
+                        }
                     }
                 }
             }
+            Err(_err) => return false
         }
     }
 
-    pub fn exists(&self, conn: &Connection) -> bool {
-        for row in self.exists_query(&conn).unwrap().iter() {
-            return row.get::<usize, bool>(0);
+    fn update(&self, conn: &postgres::Connection) -> bool {
+        match conn.query(
+            Self::get_update_query(),
+            &[&self.id, &self.accession, &self.header, &self.aa_sequence]
+        ) {
+            Ok(rows) => return rows.len() > 0,
+            Err(_err) => return false
         }
-        return false;
-    }
-}
-
-impl Persistable for Protein {
-    fn get_id(&self) -> i32 {
-        return self.id;
     }
 
-    fn get_insert_statement() -> &'static str {
-        return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT (accession) DO NOTHING RETURNING id";
+    fn save(&self, conn: &postgres::Connection) -> bool {
+        if !self.is_persisted() {
+            return self.update(conn);
+        } else {
+            return self.create(conn);
+        }
     }
 
-    fn execute_insert_query(&self, connection: &Connection) -> postgres::Result<Rows> {
-        return connection.query(
-            Protein::get_insert_statement(),
-            &[&self.accession, &self.header, &self.aa_sequence]
-        );
+
+    fn get_insert_query() -> &'static str {
+        return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id";
     }
 
-    fn execute_insert_statement(&self, prepared_statement: &Statement) {
-        prepared_statement.execute(&[&self.accession, &self.header, &self.aa_sequence]);
-    }
-
-    fn get_update_statement() -> &'static str {
+    fn get_update_query() -> &'static str {
         return "UPDATE proteins SET accession = $2, header = $3, aa_sequence = $4 WHERE id = $1";
     }
 
-    fn execute_update_query(&self, connection: &Connection) -> postgres::Result<Rows> {
-        return connection.query(
-            Protein::get_update_statement(),
-            &[&self.id, &self.accession, &self.header, &self.aa_sequence]
-        );
+
+    fn exec_insert_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+        match prepared_statement.query(&[&self.accession, &self.header, &self.aa_sequence]) {
+            Ok(rows) => {
+                if rows.len() > 0 {
+                    self.id = rows.get(0).get(0);
+                    self.is_persisted = true;
+                    return true;
+                } else {
+                    return false
+                }
+            },
+            Err(_err) => return false
+        }
     }
 
-    fn execute_update_statement(&self, prepared_statement: &Statement) {
-        prepared_statement.execute(&[&self.id, &self.accession, &self.header, &self.aa_sequence]);
+    fn exec_update_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+        match prepared_statement.query(&[&self.id, &self.accession, &self.header, &self.aa_sequence]) {
+            Ok(rows) => return rows.len() > 0,
+            Err(_err) => return false
+        }
     }
 
-    fn get_exists_statement() -> &'static str {
-        return "SELECT EXISTS(SELECT 1 FROM proteins WHERE accession = $1)";
+
+    fn is_persisted(&self) -> bool {
+        return self.is_persisted;
     }
 
-    fn exists_query(&self, connection: &Connection) -> postgres::Result<Rows> {
-        return connection.query(
-            Protein::get_exists_statement(),
-            &[&self.accession]
-        );
-    }
 }
 
 impl Collectable for Protein {

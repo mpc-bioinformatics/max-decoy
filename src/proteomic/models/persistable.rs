@@ -1,18 +1,18 @@
 extern crate postgres;
 
-use self::postgres::Connection;
-use self::postgres::rows::Rows;
-use self::postgres::Result;
-use self::postgres::stmt::Statement;
+pub trait Persistable<T, PK, UI> {
+    fn get_primary_key(&self) -> &PK;
+    fn find(conn: &postgres::Connection, primary_key: &PK) -> Result<T, &'static str>;
+    fn find_by_unique_identifier(conn: &postgres::Connection, unique_identifier: &UI) -> Result<T, &'static str>;
+    fn create(&self, conn: &postgres::Connection) -> bool;
+    fn update(&self, conn: &postgres::Connection) -> bool;
+    fn save(&self, conn: &postgres::Connection) -> bool;
 
-pub trait Persistable {
-    fn get_id(&self) -> i32;
-    fn get_insert_statement() -> &'static str;
-    fn execute_insert_query(&self, connection: &Connection) -> Result<Rows>;
-    fn execute_insert_statement(&self, prepared_statement: &Statement);
-    fn get_update_statement() -> &'static str;
-    fn execute_update_query(&self, connection: &Connection) -> Result<Rows>;
-    fn execute_update_statement(&self, prepared_statement: &Statement);
-    fn get_exists_statement() -> &'static str;
-    fn exists_query(&self, connection: &Connection) -> Result<Rows>;
+    fn get_insert_query() -> &'static str;
+    fn get_update_query() -> &'static str;
+
+    fn exec_insert_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool;
+    fn exec_update_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool;
+
+    fn is_persisted(&self) -> bool;
 }

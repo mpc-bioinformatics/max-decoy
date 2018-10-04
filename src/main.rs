@@ -9,19 +9,15 @@ use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
 use std::path::Path;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
 
 use threadpool::ThreadPool;
 
 mod proteomic;
 use proteomic::utility::enzym::{DigestEnzym, Trypsin};
-use proteomic::models::collection::Collection;
+use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
-use proteomic::models::peptide::Peptide;
-use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 
 mod tests;
 

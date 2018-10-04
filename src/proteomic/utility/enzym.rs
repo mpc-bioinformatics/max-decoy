@@ -3,6 +3,7 @@ extern crate postgres;
 
 use std::collections::HashSet;
 
+use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
@@ -55,7 +56,7 @@ pub trait DigestEnzym {
             // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
         }
         for peptide in peptides.iter() {
-            PeptideProteinAssociation::new(&peptide, &protein).create(&database_connection)
+            PeptideProteinAssociation::new(&peptide, &protein).create(&database_connection);
         }
         return peptides.len();
     }
