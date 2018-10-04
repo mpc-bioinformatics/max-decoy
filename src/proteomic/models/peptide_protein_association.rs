@@ -15,8 +15,8 @@ pub struct PeptideProteinAssociation {
 impl PeptideProteinAssociation {
     pub fn new(peptide: &Peptide, protein: &Protein) -> PeptideProteinAssociation {
         return PeptideProteinAssociation {
-            peptide_id: *peptide.get_primary_key(),
-            protein_id: *protein.get_primary_key(),
+            peptide_id: peptide.get_primary_key(),
+            protein_id: protein.get_primary_key(),
             is_persisted: false
 
         }
@@ -32,12 +32,19 @@ impl PeptideProteinAssociation {
 }
 
 impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideProteinAssociation {
-    fn get_primary_key(&self) -> &(i32, i32) {
-        return &(self.peptide_id, self.protein_id);
+    fn get_primary_key(&self) -> (i32, i32) {
+        return (self.peptide_id, self.protein_id);
     }
 
     fn find(conn: &Connection, primary_key: &(i32, i32)) -> Result<Self, &'static str> {
-        match conn.query("SELECT * FROM peptides_proteins WHERE peptide_id = $1 AND protein_id = $2 LIMIT 1", &[&primary_key.0, &primary_key.1]) {
+        return Self::find_by_unique_identifier(conn, primary_key);
+    }
+
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i32, i32)) -> Result<Self, &'static str> {
+        match conn.query(
+            "SELECT * FROM peptides WHERE peptide_id = $1 and protein_id = $2 LIMIT 1",
+            &[&unique_identifier.0, &unique_identifier.1]
+        ) {
             Ok(rows) =>{
                 if rows.len() > 0 {
                     Ok(
@@ -55,12 +62,8 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
         }
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i32, i32)) -> Result<Self, &'static str> {
-        return Self::find(conn, &unique_identifier);
-    }
 
-
-    fn create(&self, conn: &postgres::Connection) -> bool {
+    fn create(&mut self, conn: &postgres::Connection) -> bool {
         match conn.query(
             Self::get_insert_query(),
             &[&self.peptide_id, &self.protein_id]
@@ -91,7 +94,7 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
         }
     }
 
-    fn update(&self, conn: &postgres::Connection) -> bool {
+    fn update(&mut self, conn: &postgres::Connection) -> bool {
         match conn.query(
             Self::get_update_query(),
             &[&self.peptide_id, &self.protein_id]
@@ -101,14 +104,18 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
         }
     }
 
-    fn save(&self, conn: &postgres::Connection) -> bool {
-        if !self.is_persisted() {
+    fn save(&mut self, conn: &postgres::Connection) -> bool {
+        if self.is_persisted() {
             return self.update(conn);
         } else {
             return self.create(conn);
         }
     }
 
+
+    fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
+        return "SELECT peptide_id, protein_id FROM peptides_proteins WHERE peptide_id = $1 and protein_id = $2 LIMIT 1";
+    }
 
     fn get_insert_query() -> &'static str {
         return "INSERT INTO peptides_proteins (peptide_id, protein_id) VALUES ($1, $2) ON CONFLICT (peptide_id, protein_id) DO NOTHING RETURNING *";
@@ -119,7 +126,23 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
     }
 
 
-    fn exec_insert_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+        match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
+            Ok(rows) => {
+                if rows.len() > 0 {
+                        self.peptide_id = rows.get(0).get(0);
+                        self.protein_id = rows.get(0).get(1);
+                        self.is_persisted = true;
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+            Err(_err) => return false
+        }
+    }
+
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
         match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
             Ok(rows) => {
                 if rows.len() > 0 {
@@ -135,7 +158,7 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
         }
     }
 
-    fn exec_update_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
         match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
             Ok(rows) => return rows.len() > 0,
             Err(_err) => return false

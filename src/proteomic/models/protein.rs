@@ -65,8 +65,8 @@ impl Protein {
 }
 
 impl Persistable<Protein, i32, String> for Protein {
-    fn get_primary_key(&self) -> &i32 {
-        return &self.id;
+    fn get_primary_key(&self) -> i32 {
+        return self.id;
     }
 
     fn find(conn: &Connection, primary_key: &i32) -> Result<Self, &'static str> {
@@ -91,7 +91,10 @@ impl Persistable<Protein, i32, String> for Protein {
     }
 
     fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, &'static str> {
-        match conn.query("SELECT * FROM proteins WHERE aa_sequence = $1 LIMIT 1", &[&unique_identifier]) {
+        match conn.query(
+            "SELECT * FROM proteins WHERE accession = $1 LIMIT 1",
+            &[&unique_identifier]
+        ) {
             Ok(rows) =>{
                 if rows.len() > 0 {
                     Ok(
@@ -112,7 +115,7 @@ impl Persistable<Protein, i32, String> for Protein {
     }
 
 
-    fn create(&self, conn: &postgres::Connection) -> bool {
+    fn create(&mut self, conn: &postgres::Connection) -> bool {
         match conn.query(
             Self::get_insert_query(),
             &[&self.accession, &self.header, &self.aa_sequence]
@@ -125,7 +128,7 @@ impl Persistable<Protein, i32, String> for Protein {
                     // zero rows means there are a conflict on update, so the peptides exists already
                     match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
                         Ok(peptide) => {
-                            self.id = *peptide.get_primary_key();
+                            self.id = peptide.get_primary_key();
                             self.is_persisted = true;
                             return true;
                         },
@@ -140,7 +143,7 @@ impl Persistable<Protein, i32, String> for Protein {
         }
     }
 
-    fn update(&self, conn: &postgres::Connection) -> bool {
+    fn update(&mut self, conn: &postgres::Connection) -> bool {
         match conn.query(
             Self::get_update_query(),
             &[&self.id, &self.accession, &self.header, &self.aa_sequence]
@@ -150,14 +153,18 @@ impl Persistable<Protein, i32, String> for Protein {
         }
     }
 
-    fn save(&self, conn: &postgres::Connection) -> bool {
-        if !self.is_persisted() {
+    fn save(&mut self, conn: &postgres::Connection) -> bool {
+        if self.is_persisted() {
             return self.update(conn);
         } else {
             return self.create(conn);
         }
     }
 
+
+    fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
+        return "SELECT id FROM proteins WHERE accession = $1 LIMIT 1";
+    }
 
     fn get_insert_query() -> &'static str {
         return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id";
@@ -168,7 +175,22 @@ impl Persistable<Protein, i32, String> for Protein {
     }
 
 
-    fn exec_insert_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+        match prepared_statement.query(&[&self.accession]) {
+            Ok(rows) => {
+                if rows.len() > 0 {
+                        self.id = rows.get(0).get(0);
+                        self.is_persisted = true;
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+            Err(_err) => return false
+        }
+    }
+
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
         match prepared_statement.query(&[&self.accession, &self.header, &self.aa_sequence]) {
             Ok(rows) => {
                 if rows.len() > 0 {
@@ -183,7 +205,7 @@ impl Persistable<Protein, i32, String> for Protein {
         }
     }
 
-    fn exec_update_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
         match prepared_statement.query(&[&self.id, &self.accession, &self.header, &self.aa_sequence]) {
             Ok(rows) => return rows.len() > 0,
             Err(_err) => return false

@@ -115,7 +115,9 @@ fn main() {
                 thread_pool.execute(move||{
                     let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
                     let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
-                    protein.save(&database_connection);
+                    if !protein.save(&database_connection) {
+                        println!("protein not saved:\n\t{}\n", protein.to_string());
+                    }
                     overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
                     overall_peptide_counter_clone.fetch_add(trypsin_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
                 });

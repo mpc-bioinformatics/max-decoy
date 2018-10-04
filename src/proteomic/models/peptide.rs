@@ -62,8 +62,8 @@ impl Peptide {
 }
 
 impl Persistable<Peptide, i32, String> for Peptide {
-    fn get_primary_key(&self) -> &i32 {
-        return &self.id;
+    fn get_primary_key(&self) -> i32 {
+        return self.id;
     }
 
     fn find(conn: &Connection, primary_key: &i32) -> Result<Self, &'static str> {
@@ -90,7 +90,10 @@ impl Persistable<Peptide, i32, String> for Peptide {
     }
 
     fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, &'static str> {
-        match conn.query("SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1", &[&unique_identifier]) {
+        match conn.query(
+            "SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1",
+            &[&unique_identifier]
+        ) {
             Ok(rows) =>{
                 if rows.len() > 0 {
                     Ok(
@@ -113,7 +116,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
     }
 
 
-    fn create(&self, conn: &postgres::Connection) -> bool {
+    fn create(&mut self, conn: &postgres::Connection) -> bool {
         match conn.query(
             Self::get_insert_query(),
             &[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
@@ -126,7 +129,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
                     // zero rows means there are a conflict on update, so the peptides exists already
                     match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
                         Ok(peptide) => {
-                            self.id = *peptide.get_primary_key();
+                            self.id = peptide.get_primary_key();
                             self.is_persisted = true;
                             return true;
                         },
@@ -141,7 +144,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
         }
     }
 
-    fn update(&self, conn: &postgres::Connection) -> bool {
+    fn update(&mut self, conn: &postgres::Connection) -> bool {
         match conn.query(
             Self::get_update_query(),
             &[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
@@ -151,14 +154,18 @@ impl Persistable<Peptide, i32, String> for Peptide {
         }
     }
 
-    fn save(&self, conn: &postgres::Connection) -> bool {
-        if !self.is_persisted() {
+    fn save(&mut self, conn: &postgres::Connection) -> bool {
+        if self.is_persisted() {
             return self.update(conn);
         } else {
             return self.create(conn);
         }
     }
 
+
+    fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
+        return "SELECT id FROM peptides WHERE aa_sequence = $1 LIMIT 1";
+    }
 
     fn get_insert_query() -> &'static str {
         return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (aa_sequence) DO NOTHING RETURNING id";
@@ -168,8 +175,22 @@ impl Persistable<Peptide, i32, String> for Peptide {
         return "UPDATE peptides SET aa_sequence = $2, digest_enzym = $3, number_of_missed_cleavages = $4, weight = $5, length = $6 WHERE id = $1";
     }
 
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+        match prepared_statement.query(&[&self.aa_sequence]) {
+            Ok(rows) => {
+                if rows.len() > 0 {
+                        self.id = rows.get(0).get(0);
+                        self.is_persisted = true;
+                        return true;
+                } else {
+                    return false;
+                }
+            },
+            Err(_err) => return false
+        }
+    }
 
-    fn exec_insert_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
         match prepared_statement.query(&[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
             Ok(rows) => {
                 if rows.len() > 0 {
@@ -184,7 +205,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
         }
     }
 
-    fn exec_update_statement(&self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
         match prepared_statement.query(&[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
             Ok(rows) => return rows.len() > 0,
             Err(_err) => return false

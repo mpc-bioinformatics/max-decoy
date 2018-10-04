@@ -1,7 +1,7 @@
 extern crate onig;
 extern crate postgres;
 
-use std::collections::HashSet;
+use std::{thread, time};
 
 use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
@@ -28,7 +28,15 @@ pub trait DigestEnzym {
     fn get_max_peptide_length(&self) -> usize;
 
     fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein) -> usize {
-        let mut peptides: HashSet<Peptide> = HashSet::new();
+        let wait_duration = time::Duration::from_millis(100);
+        let mut peptide_counter: usize = 0;
+        let transaction = database_connection.transaction().unwrap();
+
+        let peptide_insert_statement = transaction.prepare_cached(Peptide::get_insert_query()).unwrap();
+        let peptide_select_by_unique_identifier_statement = transaction.prepare_cached(Peptide::get_select_primary_key_by_unique_identifier_query()).unwrap();
+
+        let peptide_protein_association_insert_statement = transaction.prepare_cached(PeptideProteinAssociation::get_insert_query()).unwrap();
+        let peptide_protein_association_select_by_unique_identifier_statement = transaction.prepare_cached(PeptideProteinAssociation::get_select_primary_key_by_unique_identifier_query()).unwrap();
         /*
          * clone aa_squence and pass it as mutable into replace_all
          * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
@@ -46,8 +54,21 @@ pub trait DigestEnzym {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
                         let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_name().to_owned(), number_of_missed_cleavages as i32);
-                        peptide.save(&database_connection);
-                        peptides.insert(peptide);
+                        let mut create_association = false;
+                        if !peptide.exec_insert_statement(&peptide_insert_statement) {
+                            //thread::sleep(wait_duration);
+                            create_association = peptide.exec_select_primary_key_by_unique_identifier_statement(&peptide_select_by_unique_identifier_statement);
+                        } else {
+                            create_association = true;
+                            peptide_counter += 1;
+                        }
+                        if create_association {
+                            let mut association = PeptideProteinAssociation::new(&peptide, &protein);
+                            if !association.exec_insert_statement(&peptide_protein_association_select_by_unique_identifier_statement) {
+                                //thread::sleep(wait_duration);
+                                association.exec_select_primary_key_by_unique_identifier_statement(&peptide_protein_association_insert_statement);
+                            }
+                        }
                     }
                 } else {
                     break;
@@ -55,10 +76,8 @@ pub trait DigestEnzym {
             }
             // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
         }
-        for peptide in peptides.iter() {
-            PeptideProteinAssociation::new(&peptide, &protein).create(&database_connection);
-        }
-        return peptides.len();
+        transaction.commit();
+        return peptide_counter
     }
 
 
