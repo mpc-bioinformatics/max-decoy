@@ -54,7 +54,7 @@ impl<T> Collection<T> where T: PartialEq + Eq + Hash + Persistable + Collectable
         let transaction = conn.transaction().unwrap();
         let prepared_insert_statement = transaction.prepare_cached(T::get_insert_statement()).unwrap();
         //let prepared_update_statement = transaction.prepare_cached(T::get_update_statement()).unwrap();
-        for (key, t_object) in self.objects.iter() {
+        for (_key, t_object) in self.objects.iter() {
             // if t_object.get_id() > 0 {
             //     t_object.execute_update_statement(&prepared_update_statement);
             // } else {
