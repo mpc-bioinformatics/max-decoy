@@ -4,9 +4,11 @@ use std::hash::{Hash, Hasher};
 
 use self::postgres::Connection;
 
-use proteomic::utility::amino_acid;
+use proteomic::utility::{amino_acid, mass};
 use proteomic::models::persistable::Persistable;
 use proteomic::models::collection::Collectable;
+
+const WEIGHT_CONVERT_FACTOR: f32 = 1000000.0;
 
 pub struct Peptide {
     id: i32,
@@ -49,11 +51,12 @@ impl Peptide {
         for amino_acid_one_letter_code in aa_sequence.as_str().chars() {
             weight += amino_acid::get(amino_acid_one_letter_code).get_mono_mass();
         }
-        return (weight * 100000.0) as i32;
+        weight += mass::get_neutral_loss("H2O").get_mono_mass();
+        return (weight * WEIGHT_CONVERT_FACTOR) as i32;
     }
 
     pub fn get_weight(&self) -> f32 {
-        return self.weight as f32 / 1000000.0;
+        return self.weight as f32 / WEIGHT_CONVERT_FACTOR;
     }
 
     pub fn get_aa_sequence(&self) -> &String {
@@ -94,7 +97,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
             "SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1",
             &[&unique_identifier]
         ) {
-            Ok(rows) =>{
+            Ok(rows) => {
                 if rows.len() > 0 {
                     Ok(
                         Peptide{
