@@ -2,6 +2,7 @@ extern crate onig;
 extern crate postgres;
 
 use std::{thread, time};
+use std::collections::HashSet;
 
 use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
@@ -28,7 +29,7 @@ pub trait DigestEnzym {
     fn get_max_peptide_length(&self) -> usize;
 
     fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein) -> usize {
-        let wait_duration = time::Duration::from_millis(100);
+        //let wait_duration = time::Duration::from_millis(100);
         let mut peptide_counter: usize = 0;
         let transaction = database_connection.transaction().unwrap();
 
@@ -78,6 +79,33 @@ pub trait DigestEnzym {
         }
         transaction.commit();
         return peptide_counter
+    }
+
+    fn digest_with_hash_set(&self, protein: &mut Protein, aa_sequences: &mut HashSet<String>) {
+
+        /*
+         * clone aa_squence and pass it as mutable into replace_all
+         * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
+         * make the result mutable and split it on whitespaces
+         * collect the results as String-vector
+         */
+        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        // let mut peptide_position: usize = 0;
+        // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
+        'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
+            let mut new_peptide_aa_sequence: String = String::new();
+            'inner: for number_of_missed_cleavages in 0..(self.get_max_number_of_missed_cleavages() + 1) {
+                let temp_idx: usize = peptide_idx + number_of_missed_cleavages;
+                if temp_idx < peptides_without_missed_cleavages.len() {
+                    new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
+                    if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
+                        aa_sequences.insert(new_peptide_aa_sequence.clone());
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
 

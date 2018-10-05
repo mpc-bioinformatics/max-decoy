@@ -11,6 +11,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::HashSet;
 
 use threadpool::ThreadPool;
 
@@ -92,9 +93,11 @@ fn main() {
     let mut aa_sequence = String::new();
     let trypsin: Trypsin = Trypsin::new(2, 6, 50);
 
-
+    // thread safe counter
     let overall_protein_counter = Arc::new(AtomicUsize::new(0));
     let overall_peptide_counter = Arc::new(AtomicUsize::new(0));
+    // counter
+    let mut proteins_read: usize = 0;
 
     let start_time: f64 = time::precise_time_s();
     for line in fasta_file.lines() {
@@ -108,6 +111,7 @@ fn main() {
             aa_sequence.push_str(&string_line);
         } else {
             if header.len() > 0 {
+                proteins_read += 1;
                 let mut overall_protein_counter_clone = overall_protein_counter.clone();
                 let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
                 let trypsin_clone: Trypsin = trypsin.clone();
@@ -129,6 +133,7 @@ fn main() {
         current_line += 1;
     }
     // process last protein
+    proteins_read += 1;
     let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
     let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
     protein.save(&database_connection);
@@ -136,9 +141,54 @@ fn main() {
     overall_peptide_counter.fetch_add(trypsin.digest(&database_connection, &mut protein), Ordering::Relaxed);
     // remove_start_line_file();
     let stop_time: f64 = time::precise_time_s();
-    println!("Proteins processed: {}", overall_protein_counter.load(Ordering::Relaxed));
-    println!("  Peptides created: {}", overall_peptide_counter.load(Ordering::Relaxed));
-    println!("Need {} s", (stop_time - start_time));
+    println!("Report digestion with saving:");
+    println!("\t     Proteins read: {}", proteins_read);
+    println!("\tProteins processed: {}", overall_protein_counter.load(Ordering::Relaxed));
+    println!("\t  Peptides created: {}", overall_peptide_counter.load(Ordering::Relaxed));
+    println!("\tNeed {} s", (stop_time - start_time));
+
+
+
+    ////////////////////////////////////////////////////////////////////////////
+    //// counting only
+    // file reader
+    let fasta_file = File::open(filename).expect("fasta file not found");
+    let fasta_file = BufReader::new(fasta_file);
+
+    // vars
+    let mut protein_counter: usize = 0;
+    let mut header: String = String::new();
+    let mut aa_sequence = String::new();
+    let mut aa_sequences: HashSet<String> = HashSet::new();
+
+    for line in fasta_file.lines() {
+        if current_line < start_line {
+            current_line += 1;
+            continue;
+        }
+        // trim
+        let string_line = line.unwrap().as_mut_str().trim().to_owned();
+        if !string_line.starts_with(">") {
+            aa_sequence.push_str(&string_line);
+        } else {
+            if header.len() > 0 {
+                let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+                protein_counter += 1;
+                trypsin.digest_with_hash_set(&mut protein, &mut aa_sequences);
+                aa_sequence = String::new();
+            }
+            header = string_line;
+        }
+        current_line += 1;
+    }
+    // process last protein
+    let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+    protein_counter += 1;
+    trypsin.digest_with_hash_set(&mut protein, &mut aa_sequences);
+    println!("Report digestion with count only:");
+    println!("\t     Proteins: {}", protein_counter);
+    println!("\t     Peptides: {}", aa_sequences.len());
+
 }
 
 #[cfg(test)]
