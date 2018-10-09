@@ -55,20 +55,50 @@ pub trait DigestEnzym {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
                         let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_name().to_owned(), number_of_missed_cleavages as i32);
-                        let mut create_association = false;
-                        if !peptide.exec_insert_statement(&peptide_insert_statement) {
-                            //thread::sleep(wait_duration);
-                            create_association = peptide.exec_select_primary_key_by_unique_identifier_statement(&peptide_select_by_unique_identifier_statement);
-                        } else {
-                            create_association = true;
-                            peptide_counter += 1;
-                        }
-                        if create_association {
-                            let mut association = PeptideProteinAssociation::new(&peptide, &protein);
-                            if !association.exec_insert_statement(&peptide_protein_association_select_by_unique_identifier_statement) {
-                                //thread::sleep(wait_duration);
-                                association.exec_select_primary_key_by_unique_identifier_statement(&peptide_protein_association_insert_statement);
+                        let peptides_is_saved: bool = match peptide.exec_insert_statement(&peptide_insert_statement) {
+                            Ok(_) => {
+                                peptide_counter += 1;
+                                true
+                            },
+                            Err(insert_err) => {
+                                //println!("THREAD [{:?}]: Could not insert peptide, try to find it", protein.get_accession());
+                                match peptide.exec_select_primary_key_by_unique_identifier_statement(&peptide_select_by_unique_identifier_statement) {
+                                    Ok(_) => true,
+                                    Err(select_err) => {
+                                        println!(
+                                            "ERROR [INSERT & SELECT PEPTIDE]:\n\tprotein: {}\n\tpeptide: {}\n\terror (select): {}\n\terror (insert): {}",
+                                            protein.get_accession(),
+                                            peptide.get_aa_sequence(),
+                                            select_err,
+                                            insert_err
+                                        );
+                                        false
+                                    }
+                                }
                             }
+                        };
+                        if peptides_is_saved {
+                            //println!("THREAD [{:?}]: Found peptide, has id {}", protein.get_accession(), peptide.get_primary_key());
+                            let mut association = PeptideProteinAssociation::new(&peptide, &protein);
+                            match association.exec_insert_statement(&peptide_protein_association_select_by_unique_identifier_statement) {
+                                Ok(_) => (),
+                                Err(insert_err) => {
+                                    match association.exec_select_primary_key_by_unique_identifier_statement(&peptide_protein_association_insert_statement){
+                                        Ok(_) => (),
+                                        Err(select_err) => {
+                                            println!(
+                                                "ERROR [INSERT & SELECT PP-ASSOCIATION]:\n\tprotein_id: {}\n\tpeptide_id: {}\n\terror (select): {}\n\terror (insert): {}",
+                                                association.get_peptide_id(),
+                                                association.get_protein_id(),
+                                                select_err,
+                                                insert_err
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            println!("THREAD [{:?}]: Peptides '{}' is still missing, moving to next one", protein.get_accession(), peptide.get_aa_sequence())
                         }
                     }
                 } else {
@@ -78,7 +108,7 @@ pub trait DigestEnzym {
             // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
         }
         transaction.commit();
-        return peptide_counter
+        return peptide_counter;
     }
 
     fn digest_with_hash_set(&self, protein: &mut Protein, aa_sequences: &mut HashSet<String>) {

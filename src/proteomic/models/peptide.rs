@@ -1,6 +1,7 @@
 extern crate postgres;
 
 use std::hash::{Hash, Hasher};
+use std::error::Error;
 
 use self::postgres::Connection;
 
@@ -69,7 +70,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i32) -> Result<Self, &'static str> {
+    fn find(conn: &Connection, primary_key: &i32) -> Result<Self, String> {
         match conn.query("SELECT * FROM peptides WHERE id = $1 LIMIT 1", &[primary_key]) {
             Ok(rows) =>{
                 if rows.len() > 0 {
@@ -85,79 +86,71 @@ impl Persistable<Peptide, i32, String> for Peptide {
                         }
                     )
                 } else {
-                    Err("peptide not found")
+                    Err("peptide not found".to_owned())
                 }
             },
-            Err(_err) => Err("some error occured: Peptide::find")
+            Err(_err) => Err("some error occured: Peptide::find".to_owned())
         }
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, &'static str> {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, String> {
         match conn.query(
             "SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1",
             &[&unique_identifier]
         ) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                    Ok(
-                        Peptide{
-                            id: rows.get(0).get(0),
-                            aa_sequence: rows.get(0).get(1),
-                            length: rows.get(0).get(2),
-                            number_of_missed_cleavages: rows.get(0).get(3),
-                            weight: rows.get(0).get(4),
-                            digest_enzym: rows.get(0).get(5),
-                            is_persisted: true
-                        }
-                    )
-                } else {
-                    Err("peptide not found")
+            Ok(ref rows) if rows.len() > 0 => Ok(
+                Peptide{
+                    id: rows.get(0).get(0),
+                    aa_sequence: rows.get(0).get(1),
+                    length: rows.get(0).get(2),
+                    number_of_missed_cleavages: rows.get(0).get(3),
+                    weight: rows.get(0).get(4),
+                    digest_enzym: rows.get(0).get(5),
+                    is_persisted: true
                 }
-            },
-            Err(_err) => Err("some error occured: Peptide::find_by_unique_identifier")
+            ),
+            Ok(_rows) => Err("peptide not found".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
 
-    fn create(&mut self, conn: &postgres::Connection) -> bool {
+    fn create(&mut self, conn: &postgres::Connection) -> Result<(), String> {
         match conn.query(
             Self::get_insert_query(),
             &[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
         ) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                    self.id =  rows.get(0).get(0);
-                    return true;
-                } else {
-                    // zero rows means there are a conflict on update, so the peptides exists already
-                    match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
-                        Ok(peptide) => {
-                            self.id = peptide.get_primary_key();
-                            self.is_persisted = true;
-                            return true;
-                        },
-                        Err(_err) => {
-                            println!("ERROR: something is really odd with peptide {}:\n\tcan't create it nor find it\n", self.aa_sequence);
-                            return false;
-                        }
-                    }
+            Ok(ref rows) if rows.len() > 0 => {
+                self.id =  rows.get(0).get(0);
+                return Ok(());
+            },
+            Ok(_rows) => {
+                // zero rows means there are a conflict on update, so the peptides exists already
+                match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
+                    Ok(peptide) => {
+                        self.id = peptide.get_primary_key();
+                        self.is_persisted = true;
+                        return Ok(());
+                    },
+                    Err(err) => Err(format!("cannot insert nor find peptide '{}'\n\torigina error: {}", self.aa_sequence, err))
                 }
             }
-            Err(_err) => return false
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn update(&mut self, conn: &postgres::Connection) -> bool {
+    fn update(&mut self, conn: &postgres::Connection) -> Result<(), String> {
         match conn.query(
             Self::get_update_query(),
             &[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
         ) {
-            Ok(rows) => return rows.len() > 0,
-            Err(_err) => return false
+            Ok(ref rows) if rows.len() > 0 => Ok(()),
+            Ok(_rows) => Err("updateing peptide does not return anything".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn save(&mut self, conn: &postgres::Connection) -> bool {
+    fn save(&mut self, conn: &postgres::Connection) -> Result<(), String> {
         if self.is_persisted() {
             return self.update(conn);
         } else {
@@ -178,40 +171,35 @@ impl Persistable<Peptide, i32, String> for Peptide {
         return "UPDATE peptides SET aa_sequence = $2, digest_enzym = $3, number_of_missed_cleavages = $4, weight = $5, length = $6 WHERE id = $1";
     }
 
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.aa_sequence]) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                        self.id = rows.get(0).get(0);
-                        self.is_persisted = true;
-                        return true;
-                } else {
-                    return false;
-                }
+            Ok(ref rows) if rows.len() > 0 => {
+                self.id = rows.get(0).get(0);
+                self.is_persisted = true;
+                return Ok(());
             },
-            Err(_err) => return false
+            Ok(_rows) => Err("peptides not found".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                    self.id = rows.get(0).get(0);
-                    self.is_persisted = true;
-                    return true;
-                } else {
-                    return false
-                }
+            Ok(ref rows) if rows.len() > 0 => {
+                self.id = rows.get(0).get(0);
+                self.is_persisted = true;
+                return Ok(());
             },
-            Err(_err) => return false
+            Ok(_rows) => Err("inserting peptides does not return anything".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
-            Ok(rows) => return rows.len() > 0,
-            Err(_err) => return false
+            Ok(ref rows) if rows.len() > 0 => Ok(()),
+            Ok(_rows) => Err("updating peptides does not return anything".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 

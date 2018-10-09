@@ -1,5 +1,7 @@
 extern crate postgres;
 
+use std::error::Error;
+
 use self::postgres::Connection;
 
 use proteomic::models::peptide::Peptide;
@@ -36,75 +38,67 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
         return (self.peptide_id, self.protein_id);
     }
 
-    fn find(conn: &Connection, primary_key: &(i32, i32)) -> Result<Self, &'static str> {
+    fn find(conn: &Connection, primary_key: &(i32, i32)) -> Result<Self, String> {
         return Self::find_by_unique_identifier(conn, primary_key);
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i32, i32)) -> Result<Self, &'static str> {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i32, i32)) -> Result<Self, String> {
         match conn.query(
             "SELECT * FROM peptides WHERE peptide_id = $1 and protein_id = $2 LIMIT 1",
             &[&unique_identifier.0, &unique_identifier.1]
         ) {
-            Ok(rows) =>{
-                if rows.len() > 0 {
-                    Ok(
-                        PeptideProteinAssociation {
-                            peptide_id: rows.get(0).get(0),
-                            protein_id: rows.get(0).get(1),
-                            is_persisted: true
-                        }
-                    )
-                } else {
-                    Err("protein-peptide-association not found")
+            Ok(ref rows) if rows.len() > 0 =>  Ok(
+                PeptideProteinAssociation {
+                    peptide_id: rows.get(0).get(0),
+                    protein_id: rows.get(0).get(1),
+                    is_persisted: true
                 }
-            },
-            Err(_err) => Err("some error occured: PeptideProteinAssociation::find")
+            ),
+            Ok(_rows) => Err("protein-peptide-association not found".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
 
-    fn create(&mut self, conn: &postgres::Connection) -> bool {
+    fn create(&mut self, conn: &postgres::Connection) -> Result<(), String> {
         match conn.query(
             Self::get_insert_query(),
             &[&self.peptide_id, &self.protein_id]
         ) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                    self.peptide_id = rows.get(0).get(0);
-                    self.protein_id = rows.get(0).get(1);
-                    self.is_persisted = true;
-                    return true;
-                } else {
-                    // zero rows means there are a conflict on update, so the peptides exists already
-                    match Self::find_by_unique_identifier(conn, &(self.peptide_id, self.protein_id)) {
-                        Ok(peptide_protein_association) => {
-                            self.peptide_id = peptide_protein_association.get_primary_key().0;
-                            self.protein_id = peptide_protein_association.get_primary_key().1;
-                            self.is_persisted = true;
-                            return true;
-                        },
-                        Err(_err) => {
-                            println!("ERROR: something is really odd with peptide_protein_association {:?}:\n\tcan't create it nor find it\n", (self.peptide_id, self.protein_id));
-                            return false;
-                        }
-                    }
+            Ok(ref rows) if rows.len() > 0 => {
+                self.peptide_id = rows.get(0).get(0);
+                self.protein_id = rows.get(0).get(1);
+                self.is_persisted = true;
+                return Ok(());
+            }
+            Ok(_rows) => {
+                // zero rows means there are a conflict on update, so the peptides exists already
+                match Self::find_by_unique_identifier(conn, &(self.peptide_id, self.protein_id)) {
+                    Ok(peptide_protein_association) => {
+                        self.peptide_id = peptide_protein_association.get_primary_key().0;
+                        self.protein_id = peptide_protein_association.get_primary_key().1;
+                        self.is_persisted = true;
+                        return Ok(());
+                    },
+                    Err(_err) => Err(format!("cannot inser not find peptides-protein-accession '({}, {})'", self.peptide_id, self.protein_id))
                 }
             }
-            Err(_err) => return false
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn update(&mut self, conn: &postgres::Connection) -> bool {
+    fn update(&mut self, conn: &postgres::Connection) -> Result<(), String> {
         match conn.query(
             Self::get_update_query(),
             &[&self.peptide_id, &self.protein_id]
         ) {
-            Ok(rows) => return rows.len() > 0,
-            Err(_err) => return false
+            Ok(ref rows) if rows.len() > 0 => Ok(()),
+            Ok(_rows) => Err("updateing peptide-protein-association does not return anything".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn save(&mut self, conn: &postgres::Connection) -> bool {
+    fn save(&mut self, conn: &postgres::Connection) -> Result<(), String> {
         if self.is_persisted() {
             return self.update(conn);
         } else {
@@ -126,42 +120,37 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
     }
 
 
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                        self.peptide_id = rows.get(0).get(0);
-                        self.protein_id = rows.get(0).get(1);
-                        self.is_persisted = true;
-                        return true;
-                } else {
-                    return false;
-                }
+            Ok(ref rows) if rows.len() > 0 => {
+                self.peptide_id = rows.get(0).get(0);
+                self.protein_id = rows.get(0).get(1);
+                self.is_persisted = true;
+                return Ok(());
             },
-            Err(_err) => return false
+            Ok(_rows) => Err("peptide-protein-association not found".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
-            Ok(rows) => {
-                if rows.len() > 0 {
-                    self.peptide_id = rows.get(0).get(0);
-                    self.protein_id = rows.get(0).get(1);
-                    self.is_persisted = true;
-                    return true;
-                } else {
-                    return false
-                }
+            Ok(ref rows) if rows.len() > 0 => {
+                self.peptide_id = rows.get(0).get(0);
+                self.protein_id = rows.get(0).get(1);
+                self.is_persisted = true;
+                return Ok(());
             },
-            Err(_err) => return false
+            Ok(_rows) => Err("inseting peptide-protein-association does not return anything".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> bool {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
-            Ok(rows) => return rows.len() > 0,
-            Err(_err) => return false
+            Ok(ref rows) if rows.len() > 0 => Ok(()),
+            Ok(_rows) => Err("updating peptide-protein-association does not return anything".to_owned()),
+            Err(err) => Err(err.description().to_owned())
         }
     }
 
