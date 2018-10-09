@@ -129,7 +129,7 @@ pub trait DigestEnzym {
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                        aa_sequences.insert(new_peptide_aa_sequence.clone());
+                        aa_sequences.insert(Peptide::gerneralize_aa_sequence(&new_peptide_aa_sequence));
                     }
                 } else {
                     break;
