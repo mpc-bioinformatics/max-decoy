@@ -94,9 +94,10 @@ impl Persistable<Peptide, i32, String> for Peptide {
     }
 
     fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, String> {
+        let generalized_aa_sequence: String = Self::gerneralize_aa_sequence(unique_identifier);
         match conn.query(
             "SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1",
-            &[&unique_identifier]
+            &[&generalized_aa_sequence]
         ) {
             Ok(ref rows) if rows.len() > 0 => Ok(
                 Peptide{
