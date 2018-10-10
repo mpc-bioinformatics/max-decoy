@@ -79,6 +79,11 @@ fn main() {
     let thread_pool = ThreadPool::new(cpus);
     println!("use {} threads...", cpus + 1);
 
+    let mut transaction_config = postgres::transaction::Config::new();
+    transaction_config.isolation_level(postgres::transaction::IsolationLevel::ReadUncommitted);
+    transaction_config.read_only(false);
+    transaction_config.deferrable(false);
+
 
     let fasta_file = File::open(filename).expect("fasta file not found");
     let fasta_file = BufReader::new(fasta_file);
@@ -116,7 +121,13 @@ fn main() {
                 let trypsin_clone: Trypsin = trypsin.clone();
                 while thread_pool.queued_count() > 0 {} // wait for free resources
                 thread_pool.execute(move||{
+                    let mut transaction_config = postgres::transaction::Config::new();
+                    transaction_config.isolation_level(postgres::transaction::IsolationLevel::ReadUncommitted);
+                    transaction_config.read_only(false);
+                    transaction_config.deferrable(false);
                     let database_connection: postgres::Connection = postgres::Connection::connect(get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+                    database_connection.set_transaction_config(&transaction_config);
+
                     let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
                     match protein.save(&database_connection) {
                         Ok(_) => (),
