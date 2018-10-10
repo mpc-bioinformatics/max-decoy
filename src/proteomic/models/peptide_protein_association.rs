@@ -54,8 +54,8 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
                     is_persisted: true
                 }
             ),
-            Ok(_rows) => Err("protein-peptide-association not found".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NOHIT".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -83,7 +83,7 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
                     Err(_err) => Err(format!("cannot inser not find peptides-protein-accession '({}, {})'", self.peptide_id, self.protein_id))
                 }
             }
-            Err(err) => Err(err.description().to_owned())
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -93,8 +93,8 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
             &[&self.peptide_id, &self.protein_id]
         ) {
             Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("updateing peptide-protein-association does not return anything".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -128,8 +128,8 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
                 self.is_persisted = true;
                 return Ok(());
             },
-            Ok(_rows) => Err("peptide-protein-association not found".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -141,16 +141,16 @@ impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideP
                 self.is_persisted = true;
                 return Ok(());
             },
-            Ok(_rows) => Err("inseting peptide-protein-association does not return anything".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
     fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.peptide_id, &self.protein_id]) {
             Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("updating peptide-protein-association does not return anything".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 

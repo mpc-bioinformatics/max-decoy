@@ -82,10 +82,10 @@ impl Persistable<Protein, i32, String> for Protein {
                         }
                     )
                 } else {
-                    Err("protein not found".to_owned())
+                    Err("NOHIT".to_owned())
                 }
             },
-            Err(_err) => Err("some error occured: Protein::find".to_owned())
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -103,8 +103,8 @@ impl Persistable<Protein, i32, String> for Protein {
                     is_persisted: true
                 }
             ),
-            Ok(_rows) => Err("protein not found".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NOHIT".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -129,7 +129,7 @@ impl Persistable<Protein, i32, String> for Protein {
                     Err(err) => Err(format!("cannot insert nor find protein '{}'\n\torginal error {}", self.accession, err))
                 }
             }
-            Err(err) => Err(err.description().to_owned())
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -139,8 +139,8 @@ impl Persistable<Protein, i32, String> for Protein {
             &[&self.id, &self.accession, &self.header, &self.aa_sequence]
         ) {
             Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("updateing protein does not return anything".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -173,8 +173,8 @@ impl Persistable<Protein, i32, String> for Protein {
                 self.is_persisted = true;
                 return Ok(());
             },
-            Ok(_rows) => Err("protein not found".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NOHIT".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
@@ -185,16 +185,16 @@ impl Persistable<Protein, i32, String> for Protein {
                 self.is_persisted = true;
                 return Ok(());
             },
-            Ok(_rows) =>  Err("inserting protein does not return anything".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) =>  Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
     fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
         match prepared_statement.query(&[&self.id, &self.accession, &self.header, &self.aa_sequence]) {
             Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("updating protein does not return anything".to_owned()),
-            Err(err) => Err(err.description().to_owned())
+            Ok(_rows) => Err("NORET".to_owned()),
+            Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
 
