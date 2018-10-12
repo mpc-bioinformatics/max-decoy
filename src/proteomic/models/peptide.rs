@@ -1,7 +1,6 @@
 extern crate postgres;
 
 use std::hash::{Hash, Hasher};
-use std::error::Error;
 
 use self::postgres::Connection;
 
@@ -9,20 +8,24 @@ use proteomic::utility::{amino_acid, mass};
 use proteomic::models::persistable::Persistable;
 use proteomic::models::collection::Collectable;
 
-const WEIGHT_CONVERT_FACTOR: f32 = 1000000.0;
+const WEIGHT_CONVERT_FACTOR: f64 = 1000000.0;
 
+/*
+ * attributes id, length, number_of_missed_cleavages and weight should be unsigned, but postgresql crate and database does not support it
+ * comments behind attributes show databse type
+ */
 pub struct Peptide {
-    id: i32,
-    aa_sequence: String,
-    digest_enzym: String,
-    length: i32,
-    number_of_missed_cleavages: i32,
-    weight: i32,
+    id: i32,                            // SERIAL
+    aa_sequence: String,                // TEXT
+    digest_enzym: String,               // CHAR(5)
+    length: i32,                        // INTEGER
+    number_of_missed_cleavages: i16,    // SMALLINT
+    weight: i64,                        // BIGINT
     is_persisted: bool
 }
 
 impl Peptide {
-    pub fn new(aa_sequence: String, digest_enzym: String, number_of_missed_cleavages: i32) -> Peptide {
+    pub fn new(aa_sequence: String, digest_enzym: String, number_of_missed_cleavages: i16) -> Peptide {
         let generalized_aa_sequence: String = Peptide::gerneralize_aa_sequence(&aa_sequence);
         return Peptide{
             id: -1,
@@ -47,17 +50,17 @@ impl Peptide {
         return aa_sequence.replace("I", "J").replace("L", "J");
     }
 
-    fn calculate_weight(aa_sequence: &String) -> i32 {
-        let mut weight: f32 = 0.0;
+    fn calculate_weight(aa_sequence: &String) -> i64 {
+        let mut weight: f64 = 0.0;
         for amino_acid_one_letter_code in aa_sequence.as_str().chars() {
-            weight += amino_acid::get(amino_acid_one_letter_code).get_mono_mass();
+            weight += amino_acid::get(amino_acid_one_letter_code).get_mono_mass() as f64;
         }
-        weight += mass::get_neutral_loss("H2O").get_mono_mass();
-        return (weight * WEIGHT_CONVERT_FACTOR) as i32;
+        weight += mass::get_neutral_loss("H2O").get_mono_mass() as f64;
+        return (weight * WEIGHT_CONVERT_FACTOR) as i64;
     }
 
-    pub fn get_weight(&self) -> f32 {
-        return self.weight as f32 / WEIGHT_CONVERT_FACTOR;
+    pub fn get_weight(&self) -> f64 {
+        return self.weight as f64 / WEIGHT_CONVERT_FACTOR;
     }
 
     pub fn get_aa_sequence(&self) -> &String {

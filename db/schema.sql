@@ -1,8 +1,8 @@
 CREATE TABLE proteins (
     id SERIAL PRIMARY KEY,
-    accession char(10) UNIQUE NOT NULL,
-    header text NOT NULL,
-    aa_sequence text NOT NULL
+    accession CHAR(10) UNIQUE NOT NULL,
+    header TEXT NOT NULL,
+    aa_sequence TEXT NOT NULL
 );
 
 CREATE INDEX protein_accession_idx ON proteins (accession);
@@ -10,11 +10,11 @@ CREATE INDEX protein_accession_idx ON proteins (accession);
 
 CREATE TABLE peptides (
     id SERIAL PRIMARY KEY,
-    aa_sequence char(60) UNIQUE NOT NULL,
-    length integer NOT NULL,
-    number_of_missed_cleavages integer,
-    weight integer NOT NULL,
-    digest_enzym char(60) NOT NULL
+    aa_sequence CHAR(60) UNIQUE NOT NULL,
+    length INTEGER NOT NULL,
+    number_of_missed_cleavages SMALLINT NOT NULL,
+    weight BIGINT NOT NULL,
+    digest_enzym CHAR(5) NOT NULL
 );
 
 CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
@@ -39,22 +39,24 @@ AS $$
 
         CREATE TABLE proteins (
             id SERIAL PRIMARY KEY,
-            accession char(10) UNIQUE NOT NULL,
-            header text NOT NULL,
-            aa_sequence text NOT NULL
+            accession CHAR(10) UNIQUE NOT NULL,
+            header TEXT NOT NULL,
+            aa_sequence TEXT NOT NULL
         );
 
         CREATE INDEX protein_accession_idx ON proteins (accession);
 
+
         CREATE TABLE peptides (
             id SERIAL PRIMARY KEY,
-            aa_sequence char(60) UNIQUE NOT NULL,
-            length integer NOT NULL,
-            number_of_missed_cleavages integer,
-            weight integer NOT NULL,
-            digest_enzym char(60) NOT NULL
+            aa_sequence CHAR(60) UNIQUE NOT NULL,
+            length INTEGER NOT NULL,
+            number_of_missed_cleavages SMALLINT NOT NULL,
+            weight BIGINT NOT NULL,
+            digest_enzym CHAR(5) NOT NULL
         );
 
+        CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
         CREATE INDEX peptide_weight_idx ON peptides (weight);
         CREATE INDEX peptide_length_idx ON peptides (length);
 
@@ -63,6 +65,7 @@ AS $$
             protein_id INTEGER,
             PRIMARY KEY (peptide_id, protein_id)
         );
+
 
     END;
 $$ LANGUAGE plpgsql;

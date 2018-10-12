@@ -11,20 +11,24 @@ use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 
 const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(20);
 
+
+// attributes max_number_of_missed_cleavages should be unsigned, but it will passed to Peptides. see comment for Peptide for additional reasons
 pub struct Trypsin {
     name: String,
+    shortcut: String, // the returnes string should only 5 charachters long because field 'digest_enzym' of table peptides in databse is limited to 5 characters
     digist_regex: onig::Regex,
     digest_replace: &'static str,
-    max_number_of_missed_cleavages: usize,
-    // replace this with a range in the feature: https://doc.rust-lang.org/std/ops/struct.Range.html#method.contains
+    max_number_of_missed_cleavages: i16,
+    // replace the next two attributes with a range in the feature: https://doc.rust-lang.org/std/ops/struct.Range.html#method.contains
     min_peptide_length: usize,
     max_peptide_length: usize
 }
 
 pub trait DigestEnzym {
-    fn new(max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Self;
+    fn new(max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Self;
     fn get_name(&self) -> &str;
-    fn get_max_number_of_missed_cleavages(&self) -> usize;
+    fn get_shortcut(&self) -> &str;
+    fn get_max_number_of_missed_cleavages(&self) -> i16;
     fn get_digest_regex(&self) -> &onig::Regex;
     fn get_digest_replace(&self) -> &'static str;
     fn get_min_peptide_length(&self) -> usize;
@@ -62,12 +66,12 @@ pub trait DigestEnzym {
             'peptide_loop: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
                 let mut new_peptide_aa_sequence: String = String::new();
                 'missed_cleavage_loop: for number_of_missed_cleavages in 0..(self.get_max_number_of_missed_cleavages() + 1) {
-                    let temp_idx: usize = peptide_idx + number_of_missed_cleavages;
+                    let temp_idx: usize = peptide_idx + number_of_missed_cleavages as usize;
                     if temp_idx < peptides_without_missed_cleavages.len() {
                         new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                         if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
                             error_codes = String::new();
-                            let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_name().to_owned(), number_of_missed_cleavages as i32);
+                            let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_shortcut().to_owned(), number_of_missed_cleavages);
                             match peptide.exec_insert_statement(&peptide_insert_statement) {
                                 Ok(_) => peptide_counter += 1,
                                 Err(insert_err) => match insert_err.as_str() {
@@ -158,7 +162,7 @@ pub trait DigestEnzym {
         'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
             let mut new_peptide_aa_sequence: String = String::new();
             'inner: for number_of_missed_cleavages in 0..(self.get_max_number_of_missed_cleavages() + 1) {
-                let temp_idx: usize = peptide_idx + number_of_missed_cleavages;
+                let temp_idx: usize = peptide_idx + number_of_missed_cleavages as usize;
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
@@ -179,9 +183,10 @@ pub trait DigestEnzym {
 
 
 impl DigestEnzym for Trypsin {
-    fn new (max_number_of_missed_cleavages: usize, min_peptide_length: usize, max_peptide_length: usize) -> Trypsin {
+    fn new (max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Trypsin {
         Trypsin {
-            name: String::from("Trypsin"),
+            name: "Trypsin".to_owned(),
+            shortcut: "try".to_owned(),
             digist_regex: onig::Regex::new(r"(?<=[KR])(?!P)").unwrap(),
             digest_replace: "$before $after",
             max_number_of_missed_cleavages: max_number_of_missed_cleavages,
@@ -194,7 +199,11 @@ impl DigestEnzym for Trypsin {
         return self.name.as_str();
     }
 
-    fn get_max_number_of_missed_cleavages(&self) -> usize{
+    fn get_shortcut(&self) -> &str {
+        return &self.shortcut;
+    }
+
+    fn get_max_number_of_missed_cleavages(&self) -> i16 {
         return self.max_number_of_missed_cleavages;
     }
 
