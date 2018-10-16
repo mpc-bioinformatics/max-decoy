@@ -22,7 +22,8 @@ use proteomic::models::protein::Protein;
 pub struct FastaDigester<E: DigestEnzym + Clone + Send> {
     fasta_file_path: String,
     enzym: E,
-    thread_count: usize
+    thread_count: usize,
+    start_line: usize
 }
 
 
@@ -31,30 +32,29 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
         return FastaDigester {
             fasta_file_path: file_path.to_owned(),
             enzym: E::new(number_of_missed_cleavages, min_peptide_length, max_peptide_length),
-            thread_count: thread_count
+            thread_count: thread_count,
+            start_line: Self::get_start_line()
         }
     }
 
-    fn process_file(&self) {
+    fn process_file(&self) -> (usize, usize) {
+        let thread_pool = ThreadPool::new(self.thread_count); // TODO: do not assign this if self.thread_count < 2
 
-        let thread_pool = ThreadPool::new(self.thread_count);
+        // database coonnection for main thread
+        let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
 
-        let mut transaction_config = postgres::transaction::Config::new();
-        transaction_config.isolation_level(postgres::transaction::IsolationLevel::ReadUncommitted);
-        transaction_config.read_only(false);
-        transaction_config.deferrable(false);
+        // open fasta file for counting lines
+        // let fasta_file = File::open(&self.fasta_file_path).expect("fasta file not found");
+        // let fasta_file = BufReader::new(fasta_file);
+        // println!("#lines in fasta file = {}...", fasta_file.lines().count());
 
-
+        // open fasta file
         let fasta_file = File::open(&self.fasta_file_path).expect("fasta file not found");
         let fasta_file = BufReader::new(fasta_file);
-        println!("#lines in fasta file = {}...", fasta_file.lines().count());
 
-        let fasta_file = File::open(&self.fasta_file_path).expect("fasta file not found");
-        let fasta_file = BufReader::new(fasta_file);
-
+        // line counter
         let mut current_line: usize = 1;
-        let start_line: usize = Self::get_start_line();
-        println!("start at line {}...", start_line);
+        println!("start at line {}...", self.start_line);
 
         let mut header: String = String::new();
         let mut aa_sequence = String::new();
@@ -65,7 +65,7 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
 
         let start_time: f64 = time::precise_time_s();
         for line in fasta_file.lines() {
-            if current_line < start_line {
+            if current_line < self.start_line {
                 current_line += 1;
                 continue;
             }
@@ -75,27 +75,30 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                 aa_sequence.push_str(&string_line);
             } else {
                 if header.len() > 0 {
-                    let mut overall_protein_counter_clone = overall_protein_counter.clone();
-                    let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
-                    let enzym_clone: E = self.enzym.clone();
-                    while thread_pool.queued_count() > 0 {} // wait for free resources
-                    thread_pool.execute(move||{
-                        let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
-
-                        let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
-                        match protein.save(&database_connection) {
-                            Ok(_) => (),
-                            Err(err) => {
-                                println!(
-                                    "ERROR [INSERT & SELECT PROTEIN]:\n\tprotein: {}\n\terror: {}",
-                                    protein.get_accession(),
-                                    err
-                                );
-                            }
+                    let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+                    match protein.save(&database_connection) {
+                        Ok(_) => (),
+                        Err(err) => {
+                            println!(
+                                "ERROR [INSERT & SELECT PROTEIN]:\n\tprotein: {}\n\terror: {}",
+                                protein.get_accession(),
+                                err
+                            );
                         }
-                        overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
-                        overall_peptide_counter_clone.fetch_add(enzym_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
-                    });
+                    }
+                    if self.thread_count > 1 {
+                        let mut overall_protein_counter_clone = overall_protein_counter.clone();
+                        let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
+                        let enzym_clone: E = self.enzym.clone();
+                        while thread_pool.queued_count() > 0 {} // wait for free resources
+                        thread_pool.execute(move||{
+                            let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+                            overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
+                            overall_peptide_counter_clone.fetch_add(enzym_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
+                        });
+                    } else {
+                        overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein), Ordering::Relaxed);
+                    }
                     // update_start_line_file(current_line);
                     aa_sequence = String::new();
                 }
@@ -106,8 +109,58 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
         // process last protein
         let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
         let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
-        protein.save(&database_connection);
-        let stop_time: f64 = time::precise_time_s();;
+        match protein.save(&database_connection) {
+            Ok(_) => (),
+            Err(err) => {
+                println!(
+                    "ERROR [INSERT & SELECT PROTEIN]:\n\tprotein: {}\n\terror: {}",
+                    protein.get_accession(),
+                    err
+                );
+            }
+        }
+        overall_protein_counter.fetch_add(1, Ordering::Relaxed);
+        overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein), Ordering::Relaxed);
+        let stop_time: f64 = time::precise_time_s();
+        return (overall_protein_counter.load(Ordering::Relaxed), overall_peptide_counter.load(Ordering::Relaxed));
+    }
+
+    fn process_file_but_count_only(&self) -> (usize, usize) {
+        let fasta_file = File::open(&self.fasta_file_path).expect("fasta file not found");
+        let fasta_file = BufReader::new(fasta_file);
+
+        // line counter
+        let mut current_line: usize = 1;
+
+        // vars
+        let mut protein_counter: usize = 0;
+        let mut header: String = String::new();
+        let mut aa_sequence = String::new();
+        let mut set_of_aa_sequences: HashSet<String> = HashSet::new();
+
+        for line in fasta_file.lines() {
+            if current_line < self.start_line {
+                current_line += 1;
+                continue;
+            }
+            // trim
+            let string_line = line.unwrap().as_mut_str().trim().to_owned();
+            if !string_line.starts_with(">") {
+                aa_sequence.push_str(&string_line);
+            } else {
+                if header.len() > 0 {
+                    let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+                    protein_counter += 1;
+                    self.enzym.digest_with_hash_set(&mut protein, &mut set_of_aa_sequences);
+                    aa_sequence = String::new();
+                }
+                header = string_line;
+            }
+        }
+        let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
+        protein_counter += 1;
+        self.enzym.digest_with_hash_set(&mut protein, &mut set_of_aa_sequences);
+        return (protein_counter, set_of_aa_sequences.len());
     }
 }
 

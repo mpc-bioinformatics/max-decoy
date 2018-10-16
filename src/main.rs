@@ -7,6 +7,9 @@ mod proteomic;
 use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::enzyms::trypsin::Trypsin;
+use proteomic::models::peptide::Peptide;
+use proteomic::models::protein::Protein;
+
 
 fn run_digestion(digest_cli_args: &clap::ArgMatches) {
     let mut error_in_digest_args = false;
@@ -107,9 +110,12 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
             "trypsin"
         }
     };
+    let check_db_values: bool = digest_cli_args.is_present("CHECK_DB_VALUES");
     if !error_in_digest_args {
+        let mut  results_in_db: (usize, usize) = (0, 0);
+        let mut  results_in_ram: (usize, usize) = (0, 0);
         match input_format {
-            "" => {
+            "fasta" => {
                 let file_handler = match enzym_name.to_lowercase().as_str() {
                     "trypsin" => FastaDigester::<Trypsin>::new(
                         input_file,
@@ -126,7 +132,31 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
                         max_peptide_length
                     )
                 };
-                file_handler.process_file();
+                results_in_db = file_handler.process_file();
+                if check_db_values {
+                    results_in_ram = file_handler.process_file_but_count_only();
+                    println!(
+                        "{:<20}{:<20}{:<20}{:<20}",
+                        "type/storage",
+                        "DB",
+                        "RAM",
+                        "difference"
+                    );
+                    println!(
+                        "{:<20}{:<20}{:<20}{:<20}",
+                        "proteins",
+                        results_in_db.0,
+                        results_in_ram.0,
+                        results_in_db.0 as i64 - results_in_ram.0 as i64
+                    );
+                    println!(
+                        "{:<20}{:<20}{:<20}{:<20}",
+                        "peptides",
+                        results_in_db.1,
+                        results_in_ram.1,
+                        results_in_db.1 as i64 - results_in_ram.1 as i64
+                    );
+                }
             },
             _ => println!("ERROR [digest]: Input format unknown.")
         }
@@ -191,6 +221,11 @@ fn main() {
             .long("enzym-name")
             .value_name("ENZYM_NAME")
             .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("CHECK_DB_VALUES")
+            .long("check-db-values")
+            .help("Run digestion again, stores peptides in unique list and compares number of peptides in databases with number of peptides in unique list. (ATTENTIONS: Might runs out of RAM, because unique list is stored in RAM)")
         )
     )
     .get_matches();
