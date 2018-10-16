@@ -17,4 +17,6 @@ pub trait Persistable<  T, PK, UI> {
     fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String>;
 
     fn is_persisted(&self) -> bool;
+
+    fn get_count(conn: &postgres::Connection) -> i64;
 }

@@ -203,6 +203,12 @@ impl Persistable<Protein, i32, String> for Protein {
         return self.is_persisted;
     }
 
+    fn get_count(conn: &postgres::Connection) -> i64 {
+        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM proteins", &[]) {
+            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
+            _ => -1
+        };
+    }
 }
 
 impl Collectable for Protein {
