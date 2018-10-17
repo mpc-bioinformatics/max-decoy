@@ -1,6 +1,3 @@
-extern crate dotenv;
-
-use std::env;
 use std::io::prelude::*;
 use std::path::Path;
 use std::fs::remove_file;
@@ -12,13 +9,9 @@ const START_LINE_FILE_PATH: &str = "./start_line.txt";
 
 pub trait FileDigester<E: DigestEnzym + Clone + Send + 'static> {
     fn new(file_path: &str, thread_count: usize, max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Self;
-    fn process_file(&self) -> (usize, usize);
+    fn process_file(&self) -> (usize, usize, f64);
     // returns number of proteins and number of peptides -> (number_of_proteins, number_of_peptides)
     fn process_file_but_count_only(&self) -> (usize, usize);
-    fn get_database_url() -> String {
-        dotenv::dotenv().ok();
-        return env::var("PGSQL_URL").expect("Postgresql-Database-URL 'PGSQL_URL' must be set ");
-    }
 
     fn start_line_file_exists() -> bool {
         return Path::new(START_LINE_FILE_PATH).is_file();

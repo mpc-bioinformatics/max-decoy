@@ -2,7 +2,6 @@ extern crate postgres;
 extern crate time;
 extern crate threadpool;
 
-use std::env;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
@@ -14,6 +13,7 @@ use self::threadpool::ThreadPool;
 
 use proteomic::utility::enzyms::digest_enzym::DigestEnzym;
 use proteomic::utility::input_file_digester::file_digester::FileDigester;
+use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
 
@@ -37,11 +37,11 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
         }
     }
 
-    fn process_file(&self) -> (usize, usize) {
+    fn process_file(&self) -> (usize, usize, f64) {
         let thread_pool = ThreadPool::new(self.thread_count); // TODO: do not assign this if self.thread_count < 2
 
         // database coonnection for main thread
-        let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+        let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
 
         // open fasta file for counting lines
         // let fasta_file = File::open(&self.fasta_file_path).expect("fasta file not found");
@@ -90,9 +90,9 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                         let mut overall_protein_counter_clone = overall_protein_counter.clone();
                         let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
                         let enzym_clone: E = self.enzym.clone();
-                        while thread_pool.queued_count() > 0 {} // wait for free resources
+                        while thread_pool.queued_count() > 0 {} // prevent flooding the queue with threads, wait that queue is empty before adding new thread
                         thread_pool.execute(move||{
-                            let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
+                            let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
                             overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
                             overall_peptide_counter_clone.fetch_add(enzym_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
                         });
@@ -107,7 +107,6 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
             current_line += 1;
         }
         // process last protein
-        let database_connection: postgres::Connection = postgres::Connection::connect(Self::get_database_url().as_str(), postgres::TlsMode::None).unwrap();
         let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
         match protein.save(&database_connection) {
             Ok(_) => (),
@@ -121,8 +120,10 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
         }
         overall_protein_counter.fetch_add(1, Ordering::Relaxed);
         overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein), Ordering::Relaxed);
+        // wait for threads
+        thread_pool.join();
         let stop_time: f64 = time::precise_time_s();
-        return (overall_protein_counter.load(Ordering::Relaxed), overall_peptide_counter.load(Ordering::Relaxed));
+        return (overall_protein_counter.load(Ordering::Relaxed), overall_peptide_counter.load(Ordering::Relaxed), stop_time - start_time);
     }
 
     fn process_file_but_count_only(&self) -> (usize, usize) {
