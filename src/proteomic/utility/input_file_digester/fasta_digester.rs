@@ -76,16 +76,6 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
             } else {
                 if header.len() > 0 {
                     let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
-                    match protein.save(&database_connection) {
-                        Ok(_) => (),
-                        Err(err) => {
-                            println!(
-                                "ERROR [INSERT & SELECT PROTEIN]:\n\tprotein: {}\n\terror: {}",
-                                protein.get_accession(),
-                                err
-                            );
-                        }
-                    }
                     if self.thread_count > 1 {
                         let mut overall_protein_counter_clone = overall_protein_counter.clone();
                         let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
@@ -93,6 +83,16 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                         while thread_pool.queued_count() > 0 {} // prevent flooding the queue with threads, wait that queue is empty before adding new thread
                         thread_pool.execute(move||{
                             let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
+                            match protein.save(&database_connection) {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    println!(
+                                        "ERROR [INSERT & SELECT PROTEIN]:\n\tprotein: {}\n\terror: {}",
+                                        protein.get_accession(),
+                                        err
+                                    );
+                                }
+                            }
                             overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
                             overall_peptide_counter_clone.fetch_add(enzym_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
                         });
