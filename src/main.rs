@@ -1,12 +1,15 @@
 extern crate clap;
 extern crate num_cpus;
+extern crate postgres;
 
 use clap::{Arg, App, SubCommand};
 
 mod proteomic;
 use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
+use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::enzyms::trypsin::Trypsin;
+use proteomic::models::persistable::Persistable;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::protein::Protein;
 
@@ -112,8 +115,9 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
     };
     let check_db_values: bool = digest_cli_args.is_present("CHECK_DB_VALUES");
     if !error_in_digest_args {
-        let mut  results_in_db: (usize, usize) = (0, 0);
-        let mut  results_in_ram: (usize, usize) = (0, 0);
+        let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
+        let mut results_for_digest_and_commit: (usize, usize, f64) = (0, 0, 0.0);
+        let mut results_for_counting: (usize, usize) = (0, 0);
         match input_format {
             "fasta" => {
                 let file_handler = match enzym_name.to_lowercase().as_str() {
@@ -132,29 +136,42 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
                         max_peptide_length
                     )
                 };
-                results_in_db = file_handler.process_file();
+                results_for_digest_and_commit = file_handler.process_file();
                 if check_db_values {
-                    results_in_ram = file_handler.process_file_but_count_only();
+                    results_for_counting = file_handler.process_file_but_count_only();
+                    let protein_db_count = Protein::get_count(&database_connection);
+                    let peptide_db_count = Peptide::get_count(&database_connection);
                     println!(
-                        "{:<20}{:<20}{:<20}{:<20}",
+                        "{:<20}{:<20}{:<20}{:<20}{:<20}{:<20}",
                         "type/storage",
+                        "COMMIT",
                         "DB",
                         "RAM",
-                        "difference"
+                        "diff COMMIT/RAM",
+                        "diff DB/RAM"
                     );
                     println!(
-                        "{:<20}{:<20}{:<20}{:<20}",
+                        "{:<20}{:<20}{:<20}{:<20}{:<20}{:<20}",
                         "proteins",
-                        results_in_db.0,
-                        results_in_ram.0,
-                        results_in_db.0 as i64 - results_in_ram.0 as i64
+                        results_for_digest_and_commit.0,
+                        protein_db_count,
+                        results_for_counting.0,
+                        results_for_digest_and_commit.0 as i64 - results_for_counting.0 as i64,
+                        results_for_digest_and_commit.0 as i64 - protein_db_count as i64
                     );
                     println!(
-                        "{:<20}{:<20}{:<20}{:<20}",
+                        "{:<20}{:<20}{:<20}{:<20}{:<20}{:<20}",
                         "peptides",
-                        results_in_db.1,
-                        results_in_ram.1,
-                        results_in_db.1 as i64 - results_in_ram.1 as i64
+                        results_for_digest_and_commit.1,
+                        peptide_db_count,
+                        results_for_counting.1,
+                        results_for_digest_and_commit.1 as i64 - results_for_counting.1 as i64,
+                        results_for_digest_and_commit.1 as i64 - peptide_db_count as i64
+                    );
+                    println!(
+                        "{:<20}{:<100}",
+                        "commit time",
+                        results_for_digest_and_commit.2,
                     );
                 }
             },
