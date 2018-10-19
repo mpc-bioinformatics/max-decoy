@@ -8,6 +8,8 @@ use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
+use proteomic::utility::logger::async_queued_logger::AsyncQueuedLogger;
+// use proteomic::utility::enzyms::digest_result::DigestResult;
 
 const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(20);
 
@@ -21,9 +23,10 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein) -> usize {
+    fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein, message_logger: &AsyncQueuedLogger) -> usize {
         let mut error_counter: u8 = 0;
         let mut peptide_counter: usize = 0;
+        let mut peptide_protein_association_counter: usize = 0;
 
         /*
          * clone aa_squence and pass it as mutable into replace_all
@@ -34,7 +37,8 @@ pub trait DigestEnzym {
         let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
 
         'tries_loop: loop {
-            peptide_counter = 0;    // reset peptides counter for this try
+            peptide_counter = 0;                        // reset peptides counter for this try
+            peptide_protein_association_counter = 0;    // reset association  counter for this try
 
             let mut error_codes: String = String::new();
 
@@ -106,7 +110,15 @@ pub trait DigestEnzym {
                 match error_counter {
                     // some errors occure, rollback, wait and try again later
                     1 | 2 => {
-                        println!("THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s):{}\n\n", protein.get_accession(), error_counter, DIGEST_WAIT_DURATION_FOR_ERRORS.as_secs(), error_codes);
+                        message_logger.push_back(
+                            format!(
+                                "THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s):{}\n\n",
+                                protein.get_accession(),
+                                error_counter,
+                                DIGEST_WAIT_DURATION_FOR_ERRORS.as_secs(),
+                                error_codes
+                            )
+                        );
                         transaction.set_rollback();
                         transaction.finish();
                         thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
@@ -114,7 +126,14 @@ pub trait DigestEnzym {
                     },
                     // no more try, rollback, report this as error and set peptides counter to 0
                     _ => {
-                        println!("THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n\n", protein.get_accession(), error_counter, error_codes);
+                        message_logger.push_back(
+                            format!(
+                                "THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n\n",
+                                protein.get_accession(),
+                                error_counter,
+                                error_codes
+                            )
+                        );
                         transaction.set_rollback();
                         transaction.finish();
                         peptide_counter = 0;
@@ -127,7 +146,13 @@ pub trait DigestEnzym {
                 transaction.set_commit();
                 transaction.finish();
                 if error_counter > 0 {
-                    println!("THREAD [{}]: Commited after {} errors occured.", protein.get_accession(), error_counter);
+                    message_logger.push_back(
+                        format!(
+                            "THREAD [{}]: Commited after {} errors occured.\n\n",
+                            protein.get_accession(),
+                            error_counter
+                        )
+                    );
                 }
                 break 'tries_loop;
             }

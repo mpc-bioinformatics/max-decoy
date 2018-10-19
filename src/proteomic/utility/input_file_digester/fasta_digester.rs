@@ -16,6 +16,7 @@ use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
+use proteomic::utility::logger::async_queued_logger::AsyncQueuedLogger;
 
 
 
@@ -23,7 +24,9 @@ pub struct FastaDigester<E: DigestEnzym + Clone + Send> {
     fasta_file_path: String,
     enzym: E,
     thread_count: usize,
-    start_line: usize
+    start_line: usize,
+    message_logger: Arc<AsyncQueuedLogger>,
+    unsuccessful_protein_logger: Arc<AsyncQueuedLogger>,
 }
 
 
@@ -33,7 +36,9 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
             fasta_file_path: file_path.to_owned(),
             enzym: E::new(number_of_missed_cleavages, min_peptide_length, max_peptide_length),
             thread_count: thread_count,
-            start_line: Self::get_start_line()
+            start_line: Self::get_start_line(),
+            message_logger: Arc::new(AsyncQueuedLogger::new("./digest.log")),
+            unsuccessful_protein_logger: Arc::new(AsyncQueuedLogger::new("./unsuccessful_proteins.log.fasta")),
         }
     }
 
@@ -77,9 +82,12 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                 if header.len() > 0 {
                     let mut protein: Protein = Protein::new(header.clone(), aa_sequence);
                     if self.thread_count > 1 {
+                        // clones for thread
                         let mut overall_protein_counter_clone = overall_protein_counter.clone();
                         let mut overall_peptide_counter_clone = overall_peptide_counter.clone();
                         let enzym_clone: E = self.enzym.clone();
+                        let message_logger_clone = self.message_logger.clone();
+                        let unsuccessful_protein_logger_clone = self.unsuccessful_protein_logger.clone();
                         while thread_pool.queued_count() > 0 {} // prevent flooding the queue with threads, wait that queue is empty before adding new thread
                         thread_pool.execute(move||{
                             let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
@@ -94,10 +102,10 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                                 }
                             }
                             overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
-                            overall_peptide_counter_clone.fetch_add(enzym_clone.digest(&database_connection, &mut protein), Ordering::Relaxed);
+                            overall_peptide_counter_clone.fetch_add(enzym_clone.digest(&database_connection, &mut protein, message_logger_clone.as_ref()), Ordering::Relaxed);
                         });
                     } else {
-                        overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein), Ordering::Relaxed);
+                        overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein, &self.message_logger), Ordering::Relaxed);
                     }
                     // update_start_line_file(current_line);
                     aa_sequence = String::new();
@@ -119,7 +127,7 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
             }
         }
         overall_protein_counter.fetch_add(1, Ordering::Relaxed);
-        overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein), Ordering::Relaxed);
+        overall_peptide_counter.fetch_add(self.enzym.digest(&database_connection, &mut protein, &self.message_logger), Ordering::Relaxed);
         // wait for threads
         thread_pool.join();
         let stop_time: f64 = time::precise_time_s();
