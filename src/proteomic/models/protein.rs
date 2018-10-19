@@ -61,6 +61,10 @@ impl Protein {
     pub fn to_string(&self) -> String {
         return format!("{}: {}\n\tlen => {}", self.id, self.accession, self.aa_sequence.len());
     }
+
+    pub fn as_fasta_entry(&self) -> String {
+        return format!("{}\n{}", self.header, self.aa_sequence);
+    }
 }
 
 impl Persistable<Protein, i32, String> for Protein {
