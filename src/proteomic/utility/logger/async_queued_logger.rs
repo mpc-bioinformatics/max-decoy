@@ -4,8 +4,6 @@ use std::thread;
 use std::time::Duration;
 use std::collections::VecDeque;
 use std::io::prelude::*;
-use std::path::Path;
-use std::fs::File;
 use std::io::LineWriter;
 use std::fs::OpenOptions;
 
