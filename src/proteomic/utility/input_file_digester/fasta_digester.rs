@@ -93,12 +93,9 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                             let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
                             match protein.save(&database_connection) {
                                 Ok(_) => (),
-                                Err(err) => {
-                                    println!(
-                                        "ERROR [INSERT & SELECT PROTEIN]:\n\tprotein: {}\n\terror: {}",
-                                        protein.get_accession(),
-                                        err
-                                    );
+                                Err(err) =>{
+                                    message_logger_clone.as_ref().push_back(format!("PROTEIN [{}]: Could not commited, error\n\t{} ", protein.get_aa_sequence(), err));
+                                    unsuccessful_protein_logger_clone.as_ref().push_back(protein.as_fasta_entry());
                                 }
                             }
                             overall_protein_counter_clone.fetch_add(1, Ordering::Relaxed);
