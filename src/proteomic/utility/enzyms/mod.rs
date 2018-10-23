@@ -1,5 +1,6 @@
 pub mod digest_enzym;
 pub mod trypsin;
+pub mod results;
 
 use self::digest_enzym::DigestEnzym;
 use self::trypsin::Trypsin;
