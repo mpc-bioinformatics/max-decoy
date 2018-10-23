@@ -9,6 +9,8 @@ use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::enzyms::trypsin::Trypsin;
+use proteomic::utility::enzyms::results::digest_ok::DigestOk;
+use proteomic::utility::enzyms::results::digest_error::DigestError;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::protein::Protein;
@@ -120,7 +122,7 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
         let mut results_for_counting: (usize, usize) = (0, 0);
         match input_format {
             "fasta" => {
-                let file_handler = match enzym_name.to_lowercase().as_str() {
+                let mut file_handler = match enzym_name.to_lowercase().as_str() {
                     "trypsin" => FastaDigester::<Trypsin>::new(
                         input_file,
                         thread_count,
@@ -137,7 +139,28 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
                     )
                 };
                 results_for_digest_and_commit = file_handler.process_file();
-                if check_db_values {
+                if !check_db_values {
+                    println!(
+                        "{:<20}{:<20}",
+                        "type",
+                        "comitted"
+                    );
+                    println!(
+                        "{:<20}{:<20}",
+                        "proteins",
+                        results_for_digest_and_commit.0
+                    );
+                    println!(
+                        "{:<20}{:<20}",
+                        "peptides",
+                        results_for_digest_and_commit.1
+                    );
+                    println!(
+                        "{:<20}{:<20}",
+                        "commit time",
+                        results_for_digest_and_commit.2
+                    );
+                } else {
                     results_for_counting = file_handler.process_file_but_count_only();
                     let protein_db_count = Protein::get_count(&database_connection);
                     let peptide_db_count = Peptide::get_count(&database_connection);
