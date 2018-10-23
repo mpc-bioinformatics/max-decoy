@@ -8,8 +8,8 @@ use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
-use proteomic::utility::logger::async_queued_logger::AsyncQueuedLogger;
-// use proteomic::utility::enzyms::digest_result::DigestResult;
+use proteomic::utility::enzyms::results::digest_ok::DigestOk;
+use proteomic::utility::enzyms::results::digest_error::DigestError;
 
 const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(20);
 
@@ -23,10 +23,13 @@ pub trait DigestEnzym {
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
 
-    fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein, message_logger: &AsyncQueuedLogger) -> usize {
+    fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein) -> Result<DigestOk, DigestError>  {
         let mut error_counter: u8 = 0;
-        let mut peptide_counter: usize = 0;
-        let mut peptide_protein_association_counter: usize = 0;
+        let mut commited_peptide_counter: usize = 0;
+        let mut commited_peptide_protein_association_counter: usize = 0;
+        let mut processed_peptide_counter: usize = 0;
+        let mut processed_peptide_protein_association_counter: usize = 0;
+        let mut log: String = String::new();
 
         /*
          * clone aa_squence and pass it as mutable into replace_all
@@ -37,10 +40,12 @@ pub trait DigestEnzym {
         let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
 
         'tries_loop: loop {
-            peptide_counter = 0;                        // reset peptides counter for this try
-            peptide_protein_association_counter = 0;    // reset association  counter for this try
+            processed_peptide_counter = 0;
+            processed_peptide_protein_association_counter = 0;
+            commited_peptide_counter = 0;                        // reset peptides counter for this try
+            commited_peptide_protein_association_counter = 0;    // reset association  counter for this try
 
-            let mut error_codes: String = String::new();
+            let mut error_message: String = String::new();
 
             // database transaction and statements
             let transaction = database_connection.transaction().unwrap();
@@ -61,10 +66,11 @@ pub trait DigestEnzym {
                     if temp_idx < peptides_without_missed_cleavages.len() {
                         new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                         if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                            error_codes = String::new();
+                            processed_peptide_counter += 1;
+                            error_message = String::new();
                             let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_shortcut().to_owned(), number_of_missed_cleavages);
                             match peptide.exec_insert_statement(&peptide_insert_statement) {
-                                Ok(_) => peptide_counter += 1,
+                                Ok(_) => commited_peptide_counter += 1,
                                 Err(insert_err) => match insert_err.as_str() {
                                     // no return means the peptide already exists, this
                                     "NORET" => {
@@ -73,27 +79,28 @@ pub trait DigestEnzym {
                                             // ok, error at this point means the peptides could not be insertet nor selected absolutely an error
                                             Err(select_err) => {
                                                 error_counter += 1;
-                                                error_codes.push_str(format!("\n\tinsert: {}\n\tselect: {}", insert_err, select_err).as_str());
+                                                error_message.push_str(format!("\n\tinsert: {}\n\tselect: {}", insert_err, select_err).as_str());
                                                 break 'peptide_loop;
                                             }
                                         }
                                     },
                                     // anything else than NORET is bad
                                     _ => {
-                                        error_codes.push_str(format!("\n\tinsert: {}", insert_err).as_str());
+                                        error_message.push_str(format!("\n\tinsert: {}", insert_err).as_str());
                                         error_counter += 1;
                                         break 'peptide_loop;
                                     }
                                 }
                             }
                             if peptide.is_persisted() {
+                                processed_peptide_protein_association_counter += 1;
                                 let mut association = PeptideProteinAssociation::new(&peptide, &protein);
                                 match association.exec_insert_statement(&peptide_protein_association_select_by_unique_identifier_statement) {
-                                    Ok(_) => (),
+                                    Ok(_) => processed_peptide_protein_association_counter += 1,
                                     Err(_insert_err) => {
                                         match association.exec_select_primary_key_by_unique_identifier_statement(&peptide_protein_association_insert_statement){
-                                            Ok(_) => (),
-                                            Err(_select_err) => () //error_codes.push_str(format!("select: {}", insert_err).to_str())
+                                            Ok(_) => commited_peptide_protein_association_counter += 1,
+                                            Err(_select_err) => () //error_message.push_str(format!("select: {}", insert_err).to_str())
                                         }
                                     }
                                 }
@@ -106,18 +113,18 @@ pub trait DigestEnzym {
                 // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
             }
             //println!("THREAD [{}]: error_counter => {}", protein.get_accession(), error_counter);
-            if !error_codes.is_empty() {
+            if !error_message.is_empty() {
                 match error_counter {
                     // some errors occure, rollback, wait and try again later
                     1 | 2 => {
-                        message_logger.push_back(
+                        log.push_str(
                             format!(
-                                "THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s):{}\n\n",
+                                "WARNING => THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s):{}\n",
                                 protein.get_accession(),
                                 error_counter,
                                 DIGEST_WAIT_DURATION_FOR_ERRORS.as_secs(),
-                                error_codes
-                            )
+                                error_message
+                            ).as_str()
                         );
                         transaction.set_rollback();
                         transaction.finish();
@@ -126,18 +133,21 @@ pub trait DigestEnzym {
                     },
                     // no more try, rollback, report this as error and set peptides counter to 0
                     _ => {
-                        message_logger.push_back(
+                        log.push_str(
                             format!(
-                                "THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n\n",
+                                "ERROR => THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n",
                                 protein.get_accession(),
                                 error_counter,
-                                error_codes
-                            )
+                                error_message
+                            ).as_str()
                         );
                         transaction.set_rollback();
                         transaction.finish();
-                        peptide_counter = 0;
-                        break 'tries_loop;
+                        return Err(
+                            DigestError::new(
+                                log.as_str()
+                            )
+                        )
                     }
 
                 }
@@ -146,18 +156,25 @@ pub trait DigestEnzym {
                 transaction.set_commit();
                 transaction.finish();
                 if error_counter > 0 {
-                    message_logger.push_back(
+                    log.push_str(
                         format!(
-                            "THREAD [{}]: Commited after {} errors occured.\n\n",
+                            "LOG => THREAD [{}]: Commited after {} errors occured.\n",
                             protein.get_accession(),
                             error_counter
-                        )
+                        ).as_str()
                     );
                 }
-                break 'tries_loop;
+                return Ok(
+                    DigestOk::new(
+                        processed_peptide_counter,
+                        commited_peptide_counter,
+                        processed_peptide_protein_association_counter,
+                        commited_peptide_protein_association_counter,
+                        log.as_str()
+                    )
+                )
             }
         }
-        return peptide_counter;
     }
 
     fn digest_with_hash_set(&self, protein: &mut Protein, aa_sequences: &mut HashSet<String>) {
