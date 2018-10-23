@@ -15,7 +15,6 @@ pub struct AsyncQueuedLogger {
     queue: Arc<Mutex<VecDeque<String>>>,
     stop_flag: Arc<Mutex<bool>>,
     thread_handle: Option<thread::JoinHandle<()>>   // 'option dance' see: https://users.rust-lang.org/t/spawn-threads-and-join-in-destructor/1613
-
 }
 
 impl AsyncQueuedLogger {
