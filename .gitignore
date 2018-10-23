@@ -1,8 +1,16 @@
 /target
 **/*.rs.bk
 
+# IDE files/folders
 /.vscode
 
 *.lock
 
 /.env
+
+# output files
+*.log
+*.bak
+*.log.fasta
+*.csv
+*.txt
