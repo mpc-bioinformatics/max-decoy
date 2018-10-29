@@ -19,7 +19,7 @@ use proteomic::models::protein::Protein;
 use proteomic::utility::logger::async_queued_logger::AsyncQueuedLogger;
 use proteomic::utility::logger::simple_logger::SimpleLogger;
 
-const PERFORMANCE_LOG_TIME_STEPS_IN_SECONDS: i64 = 5;
+const PERFORMANCE_LOG_TIME_STEPS_IN_SECONDS: i64 = 900;
 
 
 pub struct FastaDigester<E: DigestEnzym + Clone + Send> {
@@ -122,7 +122,7 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                                     }
                                 },
                                 Err(err) =>{
-                                    message_logger_clone.as_ref().push_back(format!("ERROR => PROTEIN [{}]: Could not be commited, error\n\t{} ", protein.get_aa_sequence(), err));
+                                    message_logger_clone.as_ref().push_back(format!("ERROR   => PROTEIN [{}]: Could not be commited, error\n\t{} ", protein.get_aa_sequence(), err));
                                     unsuccessful_protein_logger_clone.as_ref().push_back(protein.as_fasta_entry());
                                 }
                             }
@@ -148,7 +148,7 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                                 }
                             },
                             Err(err) =>{
-                                self.message_logger.as_ref().push_back(format!("ERROR => PROTEIN [{}]: Could not be commited, error\n\t{} ", protein.get_aa_sequence(), err));
+                                self.message_logger.as_ref().push_back(format!("ERROR   => PROTEIN [{}]: Could not be commited, error\n\t{} ", protein.get_aa_sequence(), err));
                                 self.unsuccessful_protein_logger.as_ref().push_back(protein.as_fasta_entry());
                             }
                         }
@@ -195,7 +195,7 @@ impl<E: DigestEnzym + Clone + Send + 'static> FileDigester<E> for FastaDigester<
                 }
             },
             Err(err) =>{
-                self.message_logger.as_ref().push_back(format!("ERROR => PROTEIN [{}]: Could not be commited, error\n\t{} ", protein.get_aa_sequence(), err));
+                self.message_logger.as_ref().push_back(format!("ERROR   => PROTEIN [{}]: Could not be commited, error\n\t{} ", protein.get_aa_sequence(), err));
                 self.unsuccessful_protein_logger.as_ref().push_back(protein.as_fasta_entry());
             }
         }

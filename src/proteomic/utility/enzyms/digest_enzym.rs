@@ -135,7 +135,7 @@ pub trait DigestEnzym {
                     _ => {
                         log.push_str(
                             format!(
-                                "ERROR => THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n",
+                                "ERROR   => THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n",
                                 protein.get_accession(),
                                 error_counter,
                                 error_message
@@ -158,7 +158,7 @@ pub trait DigestEnzym {
                 if error_counter > 0 {
                     log.push_str(
                         format!(
-                            "LOG => THREAD [{}]: Commited after {} errors occured.\n",
+                            "INFO    => THREAD [{}]: Commited after {} errors occured.\n",
                             protein.get_accession(),
                             error_counter
                         ).as_str()
