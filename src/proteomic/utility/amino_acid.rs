@@ -15,7 +15,7 @@ impl AminoAcid {
             three_letter_code: amino_acid_tupel.2,
             chemical_formula: amino_acid_tupel.3,
             mono_mass: amino_acid_tupel.4,
-            average_mass: amino_acid_tupel.5  
+            average_mass: amino_acid_tupel.5
         }
     }
 
@@ -63,7 +63,7 @@ const T: (&'static str, char, &'static str, &'static str, f32, f32) = ("Threonin
 const U: (&'static str, char, &'static str, &'static str, f32, f32) = ("Selenocysteine", 'U', "SeC", "C3H5NOSe", 150.95363, 150.0379);
 const V: (&'static str, char, &'static str, &'static str, f32, f32) = ("Valine", 'V', "Val", "C5H9ON", 99.06841, 99.1326);
 const W: (&'static str, char, &'static str, &'static str, f32, f32) = ("Tryptophan", 'W', "Trp", "C11H10ON2", 186.07931, 186.2132);
-/** Some Search Engines and Daabases used the X Amino Acid for unknown amino acids*/
+/** Some Search Engines and Databases used the X Amino Acid for unknown amino acids*/
 const X: (&'static str, char, &'static str, &'static str, f32, f32) = ("Unknown Amino Acid", 'X', "Xaa", "Unknown", 0.0, 0.0);
 const Y: (&'static str, char, &'static str, &'static str, f32, f32) = ("Tyrosine", 'Y', "Tyr", "C9H9O2N", 163.06333, 163.1760);
 /** Z is an average btween E and Q */
