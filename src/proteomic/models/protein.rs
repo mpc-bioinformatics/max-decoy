@@ -63,7 +63,7 @@ impl Protein {
     }
 
     pub fn as_fasta_entry(&self) -> String {
-        return format!("{}\n{}", self.header, self.aa_sequence);
+        return format!("{}\n{}\n", self.header, self.aa_sequence);
     }
 }
 
