@@ -168,7 +168,7 @@ impl Persistable<Peptide, i32, String> for Peptide {
     }
 
     fn get_insert_query() -> &'static str {
-        return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (aa_sequence) DO NOTHING RETURNING id";
+        return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id";
     }
 
     fn get_update_query() -> &'static str {
