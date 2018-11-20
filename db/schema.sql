@@ -9,16 +9,20 @@ CREATE INDEX protein_accession_idx ON proteins (accession);
 
 
 CREATE TABLE peptides (
-    id SERIAL PRIMARY KEY,
-    aa_sequence CHAR(60) UNIQUE NOT NULL,
+    id SERIAL NOT NULL,
+    aa_sequence CHAR(60) NOT NULL,
     length INTEGER NOT NULL,
     number_of_missed_cleavages SMALLINT NOT NULL,
     weight BIGINT NOT NULL,
-    digest_enzym CHAR(5) NOT NULL
-);
+    digest_enzym CHAR(5) NOT NULL,
+    UNIQUE (aa_sequence, weight),
+    PRIMARY KEY (id, weight)
+) PARTITION BY RANGE (weight);
+
+-- create partitions
+
 
 CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
-CREATE INDEX peptide_weight_idx ON peptides (weight);
 CREATE INDEX peptide_length_idx ON peptides (length);
 
 CREATE TABLE peptides_proteins (
@@ -26,46 +30,3 @@ CREATE TABLE peptides_proteins (
     protein_id INTEGER,
     PRIMARY KEY (peptide_id, protein_id)
 );
-
-
-CREATE OR REPLACE FUNCTION self_wipe()
-    RETURNS void
-AS $$
-    DECLARE
-    BEGIN
-        DROP TABLE IF EXISTS proteins;
-        DROP TABLE IF EXISTS peptides;
-        DROP TABLE IF EXISTS peptides_proteins;
-
-        CREATE TABLE proteins (
-            id SERIAL PRIMARY KEY,
-            accession CHAR(10) UNIQUE NOT NULL,
-            header TEXT NOT NULL,
-            aa_sequence TEXT NOT NULL
-        );
-
-        CREATE INDEX protein_accession_idx ON proteins (accession);
-
-
-        CREATE TABLE peptides (
-            id SERIAL PRIMARY KEY,
-            aa_sequence CHAR(60) UNIQUE NOT NULL,
-            length INTEGER NOT NULL,
-            number_of_missed_cleavages SMALLINT NOT NULL,
-            weight BIGINT NOT NULL,
-            digest_enzym CHAR(5) NOT NULL
-        );
-
-        CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
-        CREATE INDEX peptide_weight_idx ON peptides (weight);
-        CREATE INDEX peptide_length_idx ON peptides (length);
-
-        CREATE TABLE peptides_proteins (
-            peptide_id INTEGER,
-            protein_id INTEGER,
-            PRIMARY KEY (peptide_id, protein_id)
-        );
-
-
-    END;
-$$ LANGUAGE plpgsql;
