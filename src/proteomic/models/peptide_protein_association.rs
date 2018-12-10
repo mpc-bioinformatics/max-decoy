@@ -9,8 +9,8 @@ use proteomic::models::protein::Protein;
 use proteomic::models::persistable::Persistable;
 
 pub struct PeptideProteinAssociation {
-    peptide_id: i32,
-    protein_id: i32,
+    peptide_id: i64,
+    protein_id: i64,
     is_persisted: bool
 }
 
@@ -24,25 +24,25 @@ impl PeptideProteinAssociation {
         }
     }
 
-    pub fn get_peptide_id(&self) -> i32 {
+    pub fn get_peptide_id(&self) -> i64 {
         return self.peptide_id;
     }
 
-    pub fn get_protein_id(&self) -> i32 {
+    pub fn get_protein_id(&self) -> i64 {
         return self.protein_id;
     }
 }
 
-impl Persistable<PeptideProteinAssociation, (i32, i32), (i32, i32)> for PeptideProteinAssociation {
-    fn get_primary_key(&self) -> (i32, i32) {
+impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideProteinAssociation {
+    fn get_primary_key(&self) -> (i64, i64) {
         return (self.peptide_id, self.protein_id);
     }
 
-    fn find(conn: &Connection, primary_key: &(i32, i32)) -> Result<Self, String> {
+    fn find(conn: &Connection, primary_key: &(i64, i64)) -> Result<Self, String> {
         return Self::find_by_unique_identifier(conn, primary_key);
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i32, i32)) -> Result<Self, String> {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i64, i64)) -> Result<Self, String> {
         match conn.query(
             "SELECT * FROM peptides WHERE peptide_id = $1 and protein_id = $2 LIMIT 1",
             &[&unique_identifier.0, &unique_identifier.1]
