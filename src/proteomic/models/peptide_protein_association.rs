@@ -1,7 +1,5 @@
 extern crate postgres;
 
-use std::error::Error;
-
 use self::postgres::Connection;
 
 use proteomic::models::peptide::Peptide;
