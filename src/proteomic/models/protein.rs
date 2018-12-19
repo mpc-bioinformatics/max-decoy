@@ -2,11 +2,9 @@ extern crate onig;
 extern crate postgres;
 
 use std::hash::{Hash, Hasher};
-use std::error::Error;
 
 use self::postgres::Connection;
 
-use proteomic::models::collection::Collectable;
 use proteomic::models::persistable::Persistable;
 
 pub struct Protein {
@@ -214,13 +212,6 @@ impl Persistable<Protein, i32, String> for Protein {
         };
     }
 }
-
-impl Collectable for Protein {
-    fn get_collection_identifier(&self) -> &String {
-        return &self.accession;
-    }
-}
-
 
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for Protein {

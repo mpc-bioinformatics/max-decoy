@@ -7,7 +7,6 @@ use self::postgres::Connection;
 use proteomic::models::mass::neutral_loss::NeutralLoss;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::persistable::Persistable;
-use proteomic::models::collection::Collectable;
 
 const WEIGHT_CONVERT_FACTOR: f64 = 1000000.0;
 
@@ -220,12 +219,6 @@ impl Persistable<Peptide, i32, String> for Peptide {
         };
     }
 
-}
-
-impl Collectable for Peptide {
-    fn get_collection_identifier(&self) -> &String {
-        return &self.aa_sequence;
-    }
 }
 
 // PartialEq-implementation to use this type in a HashSet
