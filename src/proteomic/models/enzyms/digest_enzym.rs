@@ -8,8 +8,8 @@ use proteomic::models::persistable::Persistable;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
-use proteomic::utility::enzyms::results::digest_ok::DigestOk;
-use proteomic::utility::enzyms::results::digest_error::DigestError;
+use proteomic::models::enzyms::results::digest_ok::DigestOk;
+use proteomic::models::enzyms::results::digest_error::DigestError;
 
 const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(20);
 

@@ -1,6 +1,6 @@
 extern crate onig;
 
-use proteomic::utility::enzyms::digest_enzym::DigestEnzym;
+use proteomic::models::enzyms::digest_enzym::DigestEnzym;
 
 // attributes max_number_of_missed_cleavages should be unsigned, but it will passed to Peptides. see comment for Peptide for additional reasons
 pub struct Trypsin {
