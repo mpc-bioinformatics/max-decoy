@@ -8,7 +8,7 @@ use self::postgres::Connection;
 use proteomic::models::persistable::Persistable;
 
 pub struct Protein {
-    id: i32,
+    id: i64,
     accession: String,
     header: String,
     aa_sequence: String,
@@ -65,12 +65,12 @@ impl Protein {
     }
 }
 
-impl Persistable<Protein, i32, String> for Protein {
-    fn get_primary_key(&self) -> i32 {
+impl Persistable<Protein, i64, String> for Protein {
+    fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i32) -> Result<Self, String> {
+    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
         match conn.query("SELECT * FROM proteins WHERE id = $1 LIMIT 1", &[primary_key]) {
             Ok(rows) =>{
                 if rows.len() > 0 {

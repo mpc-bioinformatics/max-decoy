@@ -15,7 +15,7 @@ const WEIGHT_CONVERT_FACTOR: f64 = 1000000.0;
  * comments behind attributes show databse type
  */
 pub struct Peptide {
-    id: i32,                            // SERIAL
+    id: i64,                            // BIGSERIAL
     aa_sequence: String,                // TEXT
     digest_enzym: String,               // CHAR(5)
     length: i32,                        // INTEGER
@@ -68,12 +68,12 @@ impl Peptide {
     }
 }
 
-impl Persistable<Peptide, i32, String> for Peptide {
-    fn get_primary_key(&self) -> i32 {
+impl Persistable<Peptide, i64, String> for Peptide {
+    fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i32) -> Result<Self, String> {
+    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
         match conn.query("SELECT * FROM peptides WHERE id = $1 LIMIT 1", &[primary_key]) {
             Ok(rows) =>{
                 if rows.len() > 0 {
