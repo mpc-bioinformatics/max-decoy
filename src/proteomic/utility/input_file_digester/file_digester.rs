@@ -3,7 +3,7 @@ use std::path::Path;
 use std::fs::remove_file;
 use std::fs::File;
 
-use proteomic::utility::enzyms::digest_enzym::DigestEnzym;
+use proteomic::models::enzyms::digest_enzym::DigestEnzym;
 
 const START_LINE_FILE_PATH: &str = "./start_line.txt";
 

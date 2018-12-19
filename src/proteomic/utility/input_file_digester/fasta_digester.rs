@@ -11,7 +11,7 @@ use std::collections::HashSet;
 
 use self::threadpool::ThreadPool;
 
-use proteomic::utility::enzyms::digest_enzym::DigestEnzym;
+use proteomic::models::enzyms::digest_enzym::DigestEnzym;
 use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::persistable::Persistable;

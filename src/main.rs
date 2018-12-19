@@ -5,12 +5,9 @@ extern crate postgres;
 use clap::{Arg, App, SubCommand};
 
 mod proteomic;
-use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
-use proteomic::utility::enzyms::trypsin::Trypsin;
-use proteomic::utility::enzyms::results::digest_ok::DigestOk;
-use proteomic::utility::enzyms::results::digest_error::DigestError;
+use proteomic::models::enzyms::trypsin::Trypsin;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::protein::Protein;
