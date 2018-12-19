@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 
 use self::postgres::Connection;
 
-use proteomic::utility::mass;
+use proteomic::models::mass::neutral_loss::NeutralLoss;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::collection::Collectable;
@@ -56,7 +56,7 @@ impl Peptide {
         for amino_acid_one_letter_code in aa_sequence.as_str().chars() {
             weight += AminoAcid::get(amino_acid_one_letter_code).get_mono_mass() as f64;
         }
-        weight += mass::get_neutral_loss("H2O").get_mono_mass() as f64;
+        weight += NeutralLoss::get("H2O").get_mono_mass() as f64;
         return (weight * WEIGHT_CONVERT_FACTOR) as i64;
     }
 

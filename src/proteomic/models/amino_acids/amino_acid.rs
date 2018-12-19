@@ -1,4 +1,4 @@
-use proteomic::utility::mass;
+use proteomic::models::mass;
 
 const A: (&'static str, char, &'static str, &'static str, f64, f64, f32) = ("Alanine", 'A', "Ala", "C3H5ON", 71.03711, 71.0788, 9.1);
 /** B is an average between N and D */
