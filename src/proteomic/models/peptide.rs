@@ -51,12 +51,11 @@ impl Peptide {
     }
 
     fn calculate_weight(aa_sequence: &String) -> i64 {
-        let mut weight: f64 = 0.0;
+        let mut weight: i64 = NeutralLoss::get("H2O").get_mono_mass();
         for amino_acid_one_letter_code in aa_sequence.as_str().chars() {
-            weight += AminoAcid::get(amino_acid_one_letter_code).get_mono_mass() as f64;
+            weight += AminoAcid::get(amino_acid_one_letter_code).get_mono_mass();
         }
-        weight += NeutralLoss::get("H2O").get_mono_mass() as f64;
-        return (weight * WEIGHT_CONVERT_FACTOR) as i64;
+        return weight;
     }
 
     pub fn get_weight(&self) -> f64 {
