@@ -13,6 +13,8 @@ use proteomic::models::persistable::Persistable;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::protein::Protein;
 
+use proteomic::models::amino_acids::modification::Modification;
+
 
 fn run_digestion(digest_cli_args: &clap::ArgMatches) {
     let mut error_in_digest_args = false;
@@ -201,7 +203,17 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
     } else {
         println!("ERROR [digest]: Did nothing, some error occured.")
     }
+}
 
+fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
+    let modification_csv_file: String = match decoy_generation_cli_args.value_of("MODIFICATION_FILE") {
+        Some(modification_csv_file) => modification_csv_file.to_owned(),
+        None => String::new()
+    };
+    let mods = Modification::create_from_csv_file(&modification_csv_file);
+    for modification in mods.iter() {
+        println!("{}", modification.to_string());
+    }
 }
 
 fn main() {
@@ -266,10 +278,23 @@ fn main() {
             .help("Run digestion again, stores peptides in unique list and compares number of peptides in databases with number of peptides in unique list. (ATTENTIONS: Might runs out of RAM, because unique list is stored in RAM)")
         )
     )
+    .subcommand(
+        SubCommand::with_name("decoy-generation")
+        .arg(
+            Arg::with_name("MODIFICATION_FILE")
+            .short("m")
+            .long("modification-file")
+            .value_name("INPUT_FILE")
+            .takes_value(true)
+        )
+    )
     .get_matches();
 
 
     if let Some(matches) = matches.subcommand_matches("digest") {
         run_digestion(matches);
+    }
+    if let Some(matches) = matches.subcommand_matches("decoy-generation") {
+        run_decoy_generation(matches);
     }
 }
