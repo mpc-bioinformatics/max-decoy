@@ -9,7 +9,7 @@ use self::postgres::Connection;
 use proteomic::models::mass;
 use proteomic::models::persistable::Persistable;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ModificationPosition {
     Anywhere,
     NTerminus,
