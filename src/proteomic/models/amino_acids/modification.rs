@@ -72,12 +72,16 @@ impl Modification {
         return &self.name;
     }
 
-    pub fn get_position(&self) -> &ModificationPosition {
-        return &self.position;
+    pub fn get_position(&self) -> ModificationPosition {
+        return self.position;
     }
 
     pub fn is_fix(&self) -> bool {
         return self.is_fix;
+    }
+
+    pub fn get_amino_acid_one_letter_code(&self) -> char {
+        return self.amino_acid_one_letter_code;
     }
 
     pub fn to_string(&self) -> String {
@@ -158,10 +162,14 @@ impl Clone for Modification {
 }
 
 // PartialEq-implementation to use this type in a HashSet
+// modifcation name is not considered here because the modification might have an additional name or spelling
 impl PartialEq for Modification {
     fn eq(&self, other: &Modification) -> bool {
        return (self.accession == other.get_accession())
-        & (self.name == self.) ;
+        & (self.position == other.get_position())
+        & (self.is_fix == other.is_fix())
+        & (self.amino_acid_one_letter_code == other.get_amino_acid_one_letter_code())
+        & (self.mono_mass == other.get_mono_mass());
     }
 }
 
