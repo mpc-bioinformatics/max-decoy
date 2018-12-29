@@ -17,13 +17,13 @@ pub enum ModificationPosition {
 }
 
 pub struct Modification {
-    id: i64,
-    accession: String,
-    name: String,
-    position: ModificationPosition,
-    is_fix: bool,
-    amino_acid_one_letter_code: char,
-    mono_mass: i64
+    id: i64,                                // BIGSERIAL
+    accession: String,                      // TEXT
+    name: String,                           // VARCHAR(255)
+    position: ModificationPosition,         // SMALLINT
+    is_fix: bool,                           // BOOL                 
+    amino_acid_one_letter_code: char,       // CHAR(1)
+    mono_mass: i64                          // BIGINT
 }
 
 impl Modification {
@@ -92,11 +92,12 @@ impl Modification {
         );
     }
 
-    fn position_to_int(position: ModificationPosition) -> i8 {
+    // returns the ascii-decimal-code for the positions first char
+    fn position_to_int(position: ModificationPosition) -> i16 {
         return match position {
-            ModificationPosition::Anywhere => 1,
-            ModificationPosition::CTerminus => 2,
-            ModificationPosition::NTerminus => 3
+            ModificationPosition::Anywhere => 65,
+            ModificationPosition::CTerminus => 67,
+            ModificationPosition::NTerminus => 78
         }
     }
 
@@ -108,11 +109,12 @@ impl Modification {
         }
     }
 
-    fn position_from_int(position_int: i8) -> ModificationPosition {
+    // argument is positions first char as ascii-decimal-code
+    fn position_from_int(position_int: i16) -> ModificationPosition {
         return match position_int {
-            1 => ModificationPosition::Anywhere,
-            2 => ModificationPosition::CTerminus,
-            3 => ModificationPosition::NTerminus,
+            65 => ModificationPosition::Anywhere,
+            67 => ModificationPosition::CTerminus,
+            78 => ModificationPosition::NTerminus,
             _ => panic!("Could not parse int to ModificationPosititon")
         }
     }
@@ -158,7 +160,8 @@ impl Clone for Modification {
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for Modification {
     fn eq(&self, other: &Modification) -> bool {
-       return self.accession == *other.get_accession();
+       return (self.accession == other.get_accession())
+        & (self.name == self.) ;
     }
 }
 
@@ -186,7 +189,7 @@ impl Persistable<Modification, i64, String> for Modification {
                             id: rows.get(0).get(0),
                             accession: rows.get(0).get(1),
                             name: rows.get(0).get(2),
-                            position: Self::position_from_int(rows.get(0).get::<usize, i8>(3)),
+                            position: Self::position_from_int(rows.get(0).get::<usize, i16>(3)),
                             is_fix: rows.get(0).get(4),
                             amino_acid_one_letter_code: (rows.get(0).get::<usize, String>(5)).chars().next().unwrap(),
                             mono_mass: rows.get(0).get(6)
@@ -210,7 +213,7 @@ impl Persistable<Modification, i64, String> for Modification {
                     id: rows.get(0).get(0),
                     accession: rows.get(0).get(1),
                     name: rows.get(0).get(2),
-                    position: Self::position_from_int(rows.get(0).get::<usize, i8>(3) as i8),
+                    position: Self::position_from_int(rows.get(0).get::<usize, i16>(3)),
                     is_fix: rows.get(0).get(4),
                     amino_acid_one_letter_code: (rows.get(0).get::<usize, String>(5)).chars().next().unwrap(),
                     mono_mass: rows.get(0).get(6)

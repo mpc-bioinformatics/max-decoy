@@ -10,9 +10,9 @@ use proteomic::models::peptide::Peptide;
 use proteomic::models::mass;
 
 pub struct BaseDecoy {
-    id: i64,                            // SERIAL
+    id: i64,                            // BIGSERIAL
     header: String,                     // TEXT
-    aa_sequence: String,                // TEXT
+    aa_sequence: String,                // VARCHAR(60)
     length: i32,                        // INTEGER
     weight: i64                         // BIGINT
 }
