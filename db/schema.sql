@@ -1,5 +1,5 @@
 CREATE TABLE proteins (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     accession CHAR(10) UNIQUE NOT NULL,
     header TEXT NOT NULL,
     aa_sequence TEXT NOT NULL
@@ -9,7 +9,7 @@ CREATE INDEX protein_accession_idx ON proteins (accession);
 
 
 CREATE TABLE peptides (
-    id SERIAL NOT NULL,
+    id BIGSERIAL NOT NULL,
     aa_sequence CHAR(60) NOT NULL,
     length INTEGER NOT NULL,
     number_of_missed_cleavages SMALLINT NOT NULL,
@@ -20,13 +20,47 @@ CREATE TABLE peptides (
 ) PARTITION BY RANGE (weight);
 
 -- create partitions
-
+-- CREATE TABLE peptides_%d PARTITION OF peptides FOR VALUES FROM (%d) TO (%d);
 
 CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
 CREATE INDEX peptide_length_idx ON peptides (length);
 
+
 CREATE TABLE peptides_proteins (
-    peptide_id INTEGER,
-    protein_id INTEGER,
+    peptide_id BIGINT REFERENCES NOT NULL,
+    protein_id BIGINT REFERENCES NOT NULL,
     PRIMARY KEY (peptide_id, protein_id)
+);
+
+
+CREATE TABLE IF NOT EXISTS amino_acid_modifications (
+    id BIGSERIAL PRIMARY KEY,
+    accession TEXT NOT NULL,
+    name TEXT,
+    position SMALLINT NOT NULL,
+    is_fix BOOLEAN NOT NULL,
+    amino_acid_one_letter_code CHAR(1) NOT null,
+    mono_mass BIGINT NOT NULL,
+    UNIQUE (accession)
+);
+
+
+CREATE TABLE IF NOT EXISTS base_decoys (
+    id BIGSERIAL PRIMARY KEY,
+    header TEXT NOT NULL,
+    aa_sequence VARCHAR(60) NOT NULL,
+    length INTEGER NOT NULL,
+    weight BIGINT NOT NULL,
+    UNIQUE (aa_sequence, weight)
+);
+
+
+CREATE TABLE IF NOT EXISTS modified_decoys (
+    id BIGSERIAL PRIMARY KEY,
+    base_decoy_id BIGINT REFERENCES base_decoys(id),
+    c_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id),
+    n_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id),
+    modification_ids BIGINT ARRAY NOT NULL,
+    weight BIGINT NOT null,
+    UNIQUE (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight),
 );
