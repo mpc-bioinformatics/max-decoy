@@ -13,7 +13,11 @@ fn modified_decoy_insert() {
     ModifiedDecoy::delete_all(&conn);
     BaseDecoy::delete_all(&conn);
     Modification::delete_all(&conn);
-    assert_eq!(ModifiedDecoy::get_count(&conn), 0);
+    let mut modified_decoy_count: i64 = match ModifiedDecoy::get_count(&conn) {
+        Ok(count) => count,
+        Err(err) => panic!(err)
+    };
+    assert_eq!(modified_decoy_count, 0);
     let aa_sequence: &str = "CGKMM";
     let mut base_decoy: BaseDecoy = BaseDecoy::new(
         ">DECOY|ModifiedDecoy insert test",
@@ -47,5 +51,9 @@ fn modified_decoy_insert() {
         Err(err) => panic!("ModifiedDecoy not created, original error {}", err)
     }
     assert!(modified_decoy.get_primary_key() > 0);
-    assert_eq!(ModifiedDecoy::get_count(&conn), 1);
+    modified_decoy_count = match ModifiedDecoy::get_count(&conn) {
+        Ok(count) => count,
+        Err(err) => panic!(err)
+    };
+    assert_eq!(modified_decoy_count, 1);
 }

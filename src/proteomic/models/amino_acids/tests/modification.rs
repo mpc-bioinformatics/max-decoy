@@ -7,7 +7,11 @@ use proteomic::models::amino_acids::modification::ModificationPosition;
 fn modification_insert() {
     let conn = DatabaseConnection::get_database_connection();
     Modification::delete_all(&conn);
-    assert_eq!(Modification::get_count(&conn), 0);
+    let mut modification_count: i64 = match Modification::get_count(&conn) {
+        Ok(count) => count,
+        Err(err) => panic!(err)
+    };
+    assert_eq!(modification_count, 0);
     let mut modification: Modification = Modification::new(
         "modification_test:insert", 
         "Modification insert test",
@@ -21,5 +25,9 @@ fn modification_insert() {
         Err(err) => panic!(err)
     }
     assert!(modification.get_primary_key() > 0);
-    assert_eq!(Modification::get_count(&conn), 1);
+    modification_count = match Modification::get_count(&conn) {
+        Ok(count) => count,
+        Err(err) => panic!(err)
+    };
+    assert_eq!(modification_count, 1);
 }

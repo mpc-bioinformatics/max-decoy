@@ -7,7 +7,11 @@ use proteomic::models::amino_acids::amino_acid::AminoAcid;
 fn base_decoy_insert() {
     let conn = DatabaseConnection::get_database_connection();
     BaseDecoy::delete_all(&conn);
-    assert_eq!(BaseDecoy::get_count(&conn), 0);
+    let mut base_decoy_count: i64 = match BaseDecoy::get_count(&conn) {
+        Ok(count) => count,
+        Err(err) => panic!(err)
+    };
+    assert_eq!(base_decoy_count, 0);
     let aa_sequence: &str = "CGKMM";
     let mut base_decoy: BaseDecoy = BaseDecoy::new(
         ">DECOY|BaseDecoy insert test",
@@ -19,5 +23,9 @@ fn base_decoy_insert() {
         Err(err) => panic!("BaseDecoy not created, original error {}", err)
     }
     assert!(base_decoy.get_primary_key() > 0);
-    assert_eq!(BaseDecoy::get_count(&conn), 1);
+    base_decoy_count = match BaseDecoy::get_count(&conn) {
+        Ok(count) => count,
+        Err(err) => panic!(err)
+    };
+    assert_eq!(base_decoy_count, 1);
 }
