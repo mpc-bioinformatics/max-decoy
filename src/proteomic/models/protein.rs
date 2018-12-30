@@ -160,24 +160,7 @@ impl Persistable<Protein, i64, String> for Protein {
             Err(err) => Err(format!("could not delete Proteins from database; postgresql error is: {}", err))
         }
     }
-
-    fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Self>, String> {
-        let where_statement: String = format!("SELECT * FROM proteins WHERE {};", conditions);
-        match conn.query(where_statement.as_str(), values) {
-            Ok(ref rows) => {
-                let records: Vec<Self> = Vec::new();
-                for row in rows {
-                    match Self::from_sql_row(&row) {
-                        Ok(record) => records.push(record),
-                        Err(err) => return Err(err)
-                    }
-                    
-                }
-                return Ok(records);
-            },
-            Err(err) => Err(format!("could not gether records from database; postgresql error is: {}", err))
-        }
-    }
+    
 
     fn get_table_name() -> &'static str {
         return "proteins";
