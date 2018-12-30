@@ -19,7 +19,7 @@ pub trait Persistable<T, PK, UI> {
         let where_statement: String = format!("SELECT * FROM {} WHERE {};", Self::get_table_name(), conditions);
         match conn.query(where_statement.as_str(), values) {
             Ok(ref rows) => {
-                let records: Vec<T> = Vec::new();
+                let mut records: Vec<T> = Vec::new();
                 for row in rows {
                     match Self::from_sql_row(&row) {
                         Ok(record) => records.push(record),
