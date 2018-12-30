@@ -10,7 +10,6 @@ use proteomic::models::decoys::decoy::Decoy;
 use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::amino_acids::modification::{Modification, ModificationPosition};
-use proteomic::models::peptide::Peptide;
 use proteomic::models::mass;
 
 pub struct ModifiedDecoy {
@@ -111,7 +110,7 @@ impl ModifiedDecoy {
     pub fn set_c_terminus_modification(&mut self, c_terminus_modification: Option<Modification>) -> bool {
         match c_terminus_modification {
             Some(modification) => {
-                if (*modification.get_position() == ModificationPosition::CTerminus) | (*modification.get_position() == ModificationPosition::Anywhere) {
+                if (modification.get_position() == ModificationPosition::CTerminus) | (modification.get_position() == ModificationPosition::Anywhere) {
                     self.set_c_terminus_modification_to_none();
                     self.weight += modification.get_mono_mass();
                     self.c_terminus_modification = Some(modification);
@@ -126,7 +125,7 @@ impl ModifiedDecoy {
     pub fn set_n_terminus_modification(&mut self, n_terminus_modification: Option<Modification>) -> bool {
         match n_terminus_modification {
             Some(modification) => {
-                if (*modification.get_position() == ModificationPosition::NTerminus) | (*modification.get_position() == ModificationPosition::Anywhere) {
+                if (modification.get_position() == ModificationPosition::NTerminus) | (modification.get_position() == ModificationPosition::Anywhere) {
                     self.set_n_terminus_modification_to_none();
                     self.weight += modification.get_mono_mass();
                     self.n_terminus_modification = Some(modification);
@@ -141,7 +140,7 @@ impl ModifiedDecoy {
     pub fn set_modification_at(&mut self, idx: usize, modification_option: Option<Modification>) -> bool {
         match modification_option {
             Some(modification) => {
-                if (idx < self.modifications.len()) & (*modification.get_position() == ModificationPosition::Anywhere) {
+                if (idx < self.modifications.len()) & (modification.get_position() == ModificationPosition::Anywhere) {
                     self.set_modification_to_none_at(idx);
                     self.weight += modification.get_mono_mass();
                     self.modifications[idx] = Some(modification);
