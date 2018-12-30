@@ -18,12 +18,12 @@ pub struct BaseDecoy {
 }
 
 impl BaseDecoy {
-    pub fn new(header: String, aa_sequence: String, weight: i64) -> BaseDecoy {
+    pub fn new(header: &str, aa_sequence: &str, weight: i64) -> BaseDecoy {
         return Self {
             id: -1,
-            header: header,
+            header: header.to_owned(),
             length: aa_sequence.len() as i32,
-            aa_sequence: aa_sequence,
+            aa_sequence: aa_sequence.to_owned(),
             weight: weight
         }
     }
@@ -119,7 +119,7 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
                         self.id = decoy.get_primary_key();
                         return Ok(());
                     },
-                    Err(err) => Err(format!("cannot insert nor find decoy '{}'\n\torigina error: {}", self.aa_sequence, err))
+                    Err(err) => Err(format!("cannot insert nor find decoy '{}'\n\toriginal error: {}", self.aa_sequence, err))
                 }
             }
             Err(err) => Err(err.code().unwrap().code().to_owned())
@@ -151,7 +151,7 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
     }
 
     fn get_insert_query() -> &'static str {
-        return "INSERT INTO base_decoys (header, aa_sequence, weight, length) VALUES ($1, $2, $3, $4) ON CONFLICT (aa_sequence) DO NOTHING RETURNING id";
+        return "INSERT INTO base_decoys (header, aa_sequence, weight, length) VALUES ($1, $2, $3, $4) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id";
     }
 
     fn get_update_query() -> &'static str {
