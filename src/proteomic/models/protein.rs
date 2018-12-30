@@ -64,26 +64,25 @@ impl Protein {
 }
 
 impl Persistable<Protein, i64, String> for Protein {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+        return Ok (
+            Self {
+                id: row.get(0),
+                accession: row.get(1),
+                header: row.get(2),
+                aa_sequence: row.get(3)
+            }
+        )
+    }
+
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
     fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
         match conn.query("SELECT * FROM proteins WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(rows) =>{
-                if rows.len() > 0 {
-                    Ok(
-                        Protein{
-                            id: rows.get(0).get(0),
-                            accession: rows.get(0).get(1),
-                            header: rows.get(0).get(2),
-                            aa_sequence: rows.get(0).get(3)
-                        }
-                    )
-                } else {
-                    Err("NOHIT".to_owned())
-                }
-            },
+            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
+            Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
@@ -93,14 +92,7 @@ impl Persistable<Protein, i64, String> for Protein {
             "SELECT * FROM proteins WHERE accession = $1 LIMIT 1",
             &[&unique_identifier]
         ) {
-            Ok(ref rows)  if rows.len() > 0 =>Ok(
-                Protein{
-                    id: rows.get(0).get(0),
-                    accession: rows.get(0).get(1),
-                    header: rows.get(0).get(2),
-                    aa_sequence: rows.get(0).get(3)
-                }
-            ),
+            Ok(ref rows)  if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
             Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
@@ -169,6 +161,27 @@ impl Persistable<Protein, i64, String> for Protein {
         }
     }
 
+    fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Self>, String> {
+        let where_statement: String = format!("SELECT * FROM proteins WHERE {};", conditions);
+        match conn.query(where_statement.as_str(), values) {
+            Ok(ref rows) => {
+                let records: Vec<Self> = Vec::new();
+                for row in rows {
+                    match Self::from_sql_row(&row) {
+                        Ok(record) => records.push(record),
+                        Err(err) => return Err(err)
+                    }
+                    
+                }
+                return Ok(records);
+            },
+            Err(err) => Err(format!("could not gether records from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn get_table_name() -> &'static str {
+        return "proteins";
+    }
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM proteins WHERE accession = $1 LIMIT 1";
@@ -216,13 +229,6 @@ impl Persistable<Protein, i64, String> for Protein {
 
     fn is_persisted(&self) -> bool {
         return self.id > 0;
-    }
-
-    fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM proteins", &[]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
-            _ => -1
-        };
     }
 }
 

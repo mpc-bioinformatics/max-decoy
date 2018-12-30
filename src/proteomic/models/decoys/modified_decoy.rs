@@ -11,6 +11,7 @@ use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::amino_acids::modification::{Modification, ModificationPosition};
 use proteomic::models::mass;
+use proteomic::utility::database_connection::DatabaseConnection;
 
 pub struct ModifiedDecoy {
     id: i64,                                        // SERIAL
@@ -31,38 +32,6 @@ impl ModifiedDecoy {
             c_terminus_modification: None,
             n_terminus_modification: None
         }
-    }
-
-    pub fn new_from_psql_rows(conn: &Connection, rows: &postgres::rows::Rows) -> Result<Self, String> {
-        let base_decoy: BaseDecoy = match BaseDecoy::find(conn, &rows.get(0).get::<usize, i64>(1)) {
-            Ok(base_decoy) => base_decoy,
-            Err(error) => match error.as_str() {
-                "NOHIT" => return Err(format!("could not found the associated BaseDecoy with id = {}", rows.get(0).get::<usize, i64>(1))),
-                _ => return Err(error)                          // else a sql error occures
-            }
-        };
-        return Ok (
-            Self {
-                modifications: vec![None; base_decoy.get_length() as usize],
-                id: rows.get(0).get(0),
-                base_decoy: base_decoy,
-                c_terminus_modification: match Modification::find(conn, &rows.get(0).get::<usize, i64>(2)) {
-                    Ok(modification) => Some(modification),
-                    Err(error) => match error.as_str() {
-                        "NOHIT" => None,                            // if error is NOHIT there is simply no record
-                        _ => return Err(error)                      // else a sql error occures
-                    }
-                },
-                n_terminus_modification: match Modification::find(conn, &rows.get(0).get::<usize, i64>(2)) {
-                    Ok(modification) => Some(modification),
-                    Err(error) => match error.as_str() {
-                        "NOHIT" => None,                            // if error is NOHIT there is simply no record
-                        _ => return Err(error)                      // else a sql error occures
-                    }
-                },
-                weight: rows.get(0).get(4)
-            }
-        );
     }
 
     fn modifications_to_psql_array(&self) -> Box<Array<Option<i64>>> {
@@ -212,22 +181,47 @@ impl Decoy for ModifiedDecoy {
 
 
 impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Option<i64>>, i64)> for ModifiedDecoy {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+        let conn = DatabaseConnection::get_database_connection();
+        let base_decoy: BaseDecoy = match BaseDecoy::find(&conn, &row.get::<usize, i64>(1)) {
+            Ok(base_decoy) => base_decoy,
+            Err(error) => match error.as_str() {
+                "NOHIT" => return Err(format!("could not found the associated BaseDecoy with id = {}", row.get::<usize, i64>(1))),
+                _ => return Err(error)                          // else a sql error occures
+            }
+        };
+        return Ok (
+            Self {
+                modifications: vec![None; base_decoy.get_length() as usize],
+                id: row.get(0),
+                base_decoy: base_decoy,
+                c_terminus_modification: match Modification::find(&conn, &row.get::<usize, i64>(2)) {
+                    Ok(modification) => Some(modification),
+                    Err(error) => match error.as_str() {
+                        "NOHIT" => None,                            // if error is NOHIT there is simply no record
+                        _ => return Err(error)                      // else a sql error occures
+                    }
+                },
+                n_terminus_modification: match Modification::find(&conn, &row.get::<usize, i64>(2)) {
+                    Ok(modification) => Some(modification),
+                    Err(error) => match error.as_str() {
+                        "NOHIT" => None,                            // if error is NOHIT there is simply no record
+                        _ => return Err(error)                      // else a sql error occures
+                    }
+                },
+                weight: row.get(4)
+            }
+        );
+    }
+
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
     fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
         match conn.query("SELECT * FROM modified_decoys WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(rows) =>{
-                if rows.len() > 0 {
-                    match Self::new_from_psql_rows(conn, &rows) {
-                        Ok(modified_decoy) => Ok(modified_decoy),
-                        Err(err) => Err(err)
-                    }
-                } else {
-                    Err("NOHIT".to_owned())
-                }
-            },
+            Ok(rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
+            Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
@@ -237,12 +231,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
             "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1",
             &[&unique_identifier.0, &unique_identifier.1, &unique_identifier.2, &unique_identifier.3, &unique_identifier.4]
         ) {
-            Ok(ref rows) if rows.len() > 0 => {
-                match Self::new_from_psql_rows(conn, &rows) {
-                    Ok(modified_decoy) => Ok(modified_decoy),
-                    Err(err) => Err(err)
-                }
-            },
+            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
             Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
@@ -313,6 +302,48 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("ModifiedDecoy is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM modified_decoys WHERE id = $1;", &[&self.id]) {
+            Ok(_) => {
+                self.id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete ModifiedDecoy from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM modified_decoys WHERE id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete ModifiedDecoys from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Self>, String> {
+        let where_statement: String = format!("SELECT * FROM base_decoys WHERE {};", conditions);
+        match conn.query(where_statement.as_str(), values) {
+            Ok(ref rows) => {
+                let records: Vec<Self> = Vec::new();
+                for row in rows {
+                    match Self::from_sql_row(&row) {
+                        Ok(record) => records.push(record),
+                        Err(err) => return Err(err)
+                    }
+                    
+                }
+                return Ok(records);
+            },
+            Err(err) => Err(format!("could not gether BaseDecoys from database; postgresql error is: {}", err))
+        }
+    }
+
+
+    fn get_table_name() -> &'static str {
+        return "modified_decoys";
+    }
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1";
@@ -386,38 +417,10 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
         }
     }
 
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
-        if !self.is_persisted() {
-            return Err("ModifiedDecoy is not persisted".to_owned());
-        }
-        match conn.execute("DELETE FROM modified_decoys WHERE id = $1;", &[&self.id]) {
-            Ok(_) => {
-                self.id = 0;
-                return Ok(());
-            },
-            Err(err) => Err(format!("could not delete ModifiedDecoy from database; postgresql error is: {}", err))
-        }
-    }
-
-    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
-        match conn.execute("DELETE FROM modified_decoys WHERE id IS NOT NULL;", &[]) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(format!("could not delete ModifiedDecoys from database; postgresql error is: {}", err))
-        }
-    }
-
 
     fn is_persisted(&self) -> bool {
         return self.id > 0;
     }
-
-    fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM modified_decoys", &[]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
-            _ => -1
-        };
-    }
-
 }
 
 

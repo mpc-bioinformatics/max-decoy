@@ -184,6 +184,20 @@ impl Hash for Modification {
 }
 
 impl Persistable<Modification, i64, String> for Modification {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+        return Ok (
+            Self {
+                id: row.get(0),
+                accession: row.get(1),
+                name: row.get(2),
+                position: Self::position_from_int(row.get::<usize, i16>(3)),
+                is_fix: row.get(4),
+                amino_acid_one_letter_code: (row.get::<usize, String>(5)).chars().next().unwrap(),
+                mono_mass: row.get(6)
+            }
+        )
+    }
+
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
@@ -296,6 +310,10 @@ impl Persistable<Modification, i64, String> for Modification {
     }
 
 
+    fn get_table_name() -> &'static str {
+        return "amino_acid_modifications";
+    }
+
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM amino_acid_modifications WHERE accession = $1 LIMIT 1";
     }
@@ -342,12 +360,4 @@ impl Persistable<Modification, i64, String> for Modification {
     fn is_persisted(&self) -> bool {
         return self.id < 1;
     }
-
-    fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM amino_acid_modifications", &[]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
-            _ => -1
-        };
-    }
-
 }

@@ -29,6 +29,15 @@ impl PeptideProteinAssociation {
 }
 
 impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideProteinAssociation {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+        return Ok(
+            Self {
+                peptide_id: row.get(0),
+                protein_id: row.get(1)
+            }
+        )
+    }
+
     fn get_primary_key(&self) -> (i64, i64) {
         return (self.peptide_id, self.protein_id);
     }
@@ -42,12 +51,7 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
             "SELECT * FROM peptides WHERE peptide_id = $1 and protein_id = $2 LIMIT 1",
             &[&unique_identifier.0, &unique_identifier.1]
         ) {
-            Ok(ref rows) if rows.len() > 0 =>  Ok(
-                PeptideProteinAssociation {
-                    peptide_id: rows.get(0).get(0),
-                    protein_id: rows.get(0).get(1)
-                }
-            ),
+            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
             Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
@@ -119,6 +123,28 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
         }
     }
 
+    fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Self>, String> {
+        let where_statement: String = format!("SELECT * FROM base_decoys WHERE {};", conditions);
+        match conn.query(where_statement.as_str(), values) {
+            Ok(ref rows) => {
+                let records: Vec<Self> = Vec::new();
+                for row in rows {
+                    match Self::from_sql_row(&row) {
+                        Ok(record) => records.push(record),
+                        Err(err) => return Err(err)
+                    }
+                    
+                }
+                return Ok(records);
+            },
+            Err(err) => Err(format!("could not gether BaseDecoys from database; postgresql error is: {}", err))
+        }
+    }
+
+
+    fn get_table_name() -> &'static str {
+        return "peptides_proteins";
+    }
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT peptide_id, protein_id FROM peptides_proteins WHERE peptide_id = $1 and protein_id = $2 LIMIT 1";
@@ -168,12 +194,5 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
 
     fn is_persisted(&self) -> bool {
         return (self.peptide_id > 0) & (self.protein_id > 0);
-    }
-
-    fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(*) AS BIGINT) FROM peptides_proteins", &[]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
-            _ => -1
-        };
     }
 }

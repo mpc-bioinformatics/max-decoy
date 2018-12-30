@@ -78,27 +78,27 @@ impl Decoy for BaseDecoy {
 
 
 impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+        return Ok(
+            Self {
+                id: row.get(0),
+                header: row.get(1),
+                aa_sequence: row.get(2),
+                length: row.get(3),
+                weight: row.get(4)
+            }
+        )
+    }
+
+
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
     fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
         match conn.query("SELECT * FROM base_decoys WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(rows) =>{
-                if rows.len() > 0 {
-                    Ok(
-                        Self{
-                            id: rows.get(0).get(0),
-                            header: rows.get(0).get(1),
-                            aa_sequence: rows.get(0).get(2),
-                            length: rows.get(0).get(3),
-                            weight: rows.get(0).get(4)
-                        }
-                    )
-                } else {
-                    Err("NOHIT".to_owned())
-                }
-            },
+            Ok(rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
+            Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
@@ -109,15 +109,7 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
             "SELECT * FROM base_decoys WHERE aa_sequence = $1 LIMIT 1",
             &[&generalized_aa_sequence]
         ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(
-                Self{
-                    id: rows.get(0).get(0),
-                    header: rows.get(0).get(1),
-                    aa_sequence: rows.get(0).get(2),
-                    length: rows.get(0).get(3),
-                    weight: rows.get(0).get(4)
-                }
-            ),
+            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
             Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
@@ -186,6 +178,28 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
         }
     }
 
+    fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Self>, String> {
+        let where_statement: String = format!("SELECT * FROM base_decoys WHERE {};", conditions);
+        match conn.query(where_statement.as_str(), values) {
+            Ok(ref rows) => {
+                let records: Vec<Self> = Vec::new();
+                for row in rows {
+                    match Self::from_sql_row(&row) {
+                        Ok(record) => records.push(record),
+                        Err(err) => return Err(err)
+                    }
+                    
+                }
+                return Ok(records);
+            },
+            Err(err) => Err(format!("could not gether record from database; postgresql error is: {}", err))
+        }
+    }
+
+
+    fn get_table_name() -> &'static str {
+        return "base_decoys";
+    }
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM base_decoys WHERE aa_sequence = $1 LIMIT 1";
@@ -233,14 +247,6 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
     fn is_persisted(&self) -> bool {
         return self.id > 0;
     }
-
-    fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM base_decoys", &[]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
-            _ => -1
-        };
-    }
-
 }
 
 

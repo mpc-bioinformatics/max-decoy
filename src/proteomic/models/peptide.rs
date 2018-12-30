@@ -66,28 +66,27 @@ impl Peptide {
 }
 
 impl Persistable<Peptide, i64, String> for Peptide {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+        return Ok(
+            Self{
+                id: row.get(0),
+                aa_sequence: row.get(1),
+                length: row.get(2),
+                number_of_missed_cleavages: row.get(3),
+                weight: row.get(4),
+                digest_enzym: row.get(5)
+            }
+        )
+    }
+
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
     fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
         match conn.query("SELECT * FROM peptides WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(rows) =>{
-                if rows.len() > 0 {
-                    Ok(
-                        Peptide{
-                            id: rows.get(0).get(0),
-                            aa_sequence: rows.get(0).get(1),
-                            length: rows.get(0).get(2),
-                            number_of_missed_cleavages: rows.get(0).get(3),
-                            weight: rows.get(0).get(4),
-                            digest_enzym: rows.get(0).get(5)
-                        }
-                    )
-                } else {
-                    Err("NOHIT".to_owned())
-                }
-            },
+            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
+            Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
     }
@@ -98,16 +97,7 @@ impl Persistable<Peptide, i64, String> for Peptide {
             "SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1",
             &[&generalized_aa_sequence]
         ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(
-                Peptide{
-                    id: rows.get(0).get(0),
-                    aa_sequence: rows.get(0).get(1),
-                    length: rows.get(0).get(2),
-                    number_of_missed_cleavages: rows.get(0).get(3),
-                    weight: rows.get(0).get(4),
-                    digest_enzym: rows.get(0).get(5)
-                }
-            ),
+            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
             Ok(_rows) => Err("NOHIT".to_owned()),
             Err(err) => Err(err.code().unwrap().code().to_owned())
         }
@@ -177,6 +167,10 @@ impl Persistable<Peptide, i64, String> for Peptide {
     }
 
 
+    fn get_table_name() -> &'static str {
+        return "peptides";
+    }
+
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM peptides WHERE aa_sequence = $1 LIMIT 1";
     }
@@ -223,14 +217,6 @@ impl Persistable<Peptide, i64, String> for Peptide {
     fn is_persisted(&self) -> bool {
         return self.id > 0;
     }
-
-    fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM peptides", &[]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
-            _ => -1
-        };
-    }
-
 }
 
 // PartialEq-implementation to use this type in a HashSet
