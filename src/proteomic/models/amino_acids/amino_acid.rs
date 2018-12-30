@@ -1,4 +1,5 @@
 use proteomic::models::mass;
+use proteomic::models::mass::neutral_loss::NeutralLoss;
 
 const A: (&'static str, char, &'static str, &'static str, f64, f64, f32) = ("Alanine", 'A', "Ala", "C3H5ON", 71.03711, 71.0788, 9.1);
 /** B is an average between N and D */
@@ -116,6 +117,14 @@ impl AminoAcid {
 
     pub fn get_lightest() -> AminoAcid {
         return AminoAcid::new(G);
+    }
+
+    pub fn get_sequence_weight(sequence: &str) -> i64 {
+        let mut weight: i64 = NeutralLoss::get("H2O").get_mono_mass();
+        for amino_acid_one_letter_code in sequence.chars() {
+            weight += AminoAcid::get(amino_acid_one_letter_code).get_mono_mass();
+        }
+        return weight;
     }
 }
 
