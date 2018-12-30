@@ -53,6 +53,27 @@ impl Decoy for BaseDecoy {
     fn get_length(&self) -> i32 {
         return self.aa_sequence.len() as i32;
     }
+
+    fn get_c_terminus_amino_acid(&self) -> char {
+        match self.aa_sequence.chars().last() {
+            Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
+            None => '_'
+        }
+    }
+
+    fn get_n_terminus_amino_acid(&self) -> char {
+        match self.aa_sequence.chars().next() {
+            Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
+            None => '_'
+        }
+    }
+
+    fn get_amino_acid_at(&self, idx: usize) -> char {
+        match self.aa_sequence.chars().nth(idx) {
+            Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
+            None => '_'
+        }
+    }
 }
 
 
