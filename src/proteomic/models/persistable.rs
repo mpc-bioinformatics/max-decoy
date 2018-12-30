@@ -48,6 +48,7 @@ pub trait Persistable<T, PK, UI> {
         let query: String = format!("SELECT cast(count(id) AS BIGINT) FROM {};", Self::get_table_name());
         return match conn.query(query.as_str(), &[]) {
             Ok(ref rows) if rows.len() > 0 => Ok(rows.get(0).get::<usize, i64>(0)),
+            Ok(_rows) => Err("not possible error occured".to_owned()),                           // this error can not happen, except count is successfull but does not return something. This case exists only to make the compiler happy
             Err(err) => Err(format!("could not count records from table '{}'; original error: {}", Self::get_table_name(), err))
         };
     }
