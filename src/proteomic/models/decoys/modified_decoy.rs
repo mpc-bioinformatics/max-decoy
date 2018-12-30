@@ -22,12 +22,12 @@ pub struct ModifiedDecoy {
 }
 
 impl ModifiedDecoy {
-    pub fn new(base_decoy: BaseDecoy) -> ModifiedDecoy {
+    pub fn new(base_decoy: &BaseDecoy) -> ModifiedDecoy {
         return Self {
             modifications: vec![None; base_decoy.get_length() as usize],
             weight: base_decoy.get_weight(),
             id: -1,
-            base_decoy: base_decoy,
+            base_decoy: base_decoy.clone(),
             c_terminus_modification: None,
             n_terminus_modification: None
         }
@@ -107,49 +107,67 @@ impl ModifiedDecoy {
         }
     }
 
-    pub fn set_c_terminus_modification(&mut self, c_terminus_modification: Option<Modification>) -> bool {
-        match c_terminus_modification {
+    pub fn set_c_terminus_modification(&mut self, new_c_terminus_modification_option: Option<Modification>) -> Result<(), String> {
+        match new_c_terminus_modification_option {
             Some(modification) => {
-                if (modification.get_position() == ModificationPosition::CTerminus) | (modification.get_position() == ModificationPosition::Anywhere) {
-                    self.set_c_terminus_modification_to_none();
-                    self.weight += modification.get_mono_mass();
-                    self.c_terminus_modification = Some(modification);
-                    return true;
+                if modification.get_position() != ModificationPosition::CTerminus {
+                    return Err("Modification is not for C-Terminus".to_owned());
                 }
+                if modification.get_amino_acid_one_letter_code() == self.get_c_terminus_amino_acid() {
+                    return Err(format!("Modification is not for the amino acid on C-Terminus: {}", self.get_c_terminus_amino_acid()))
+                }
+                self.set_c_terminus_modification_to_none();
+                self.weight += modification.get_mono_mass();
+                self.c_terminus_modification = Some(modification);
+                return Ok(());
             }
-            None => ()
+            None => {
+                self.set_c_terminus_modification_to_none();
+                return Ok(());
+            }
         }
-        return false;
     }
 
-    pub fn set_n_terminus_modification(&mut self, n_terminus_modification: Option<Modification>) -> bool {
-        match n_terminus_modification {
+    pub fn set_n_terminus_modification(&mut self, new_n_terminus_modification: Option<Modification>) -> Result<(), String> {
+        match new_n_terminus_modification {
             Some(modification) => {
-                if (modification.get_position() == ModificationPosition::NTerminus) | (modification.get_position() == ModificationPosition::Anywhere) {
-                    self.set_n_terminus_modification_to_none();
-                    self.weight += modification.get_mono_mass();
-                    self.n_terminus_modification = Some(modification);
-                    return true;
+                if modification.get_position() != ModificationPosition::NTerminus {
+                    return Err("Modification is not for N-Terminus".to_owned());
                 }
+                if modification.get_amino_acid_one_letter_code() == self.get_n_terminus_amino_acid() {
+                    return Err(format!("Modification is not for the amino acid on N-Terminus: {}", self.get_n_terminus_amino_acid()))
+                }
+                self.set_n_terminus_modification_to_none();
+                self.weight += modification.get_mono_mass();
+                self.n_terminus_modification = Some(modification);
+                return Ok(());
             }
-            None => ()
+            None => {
+                self.set_n_terminus_modification_to_none();
+                return Ok(());
+            }
         }
-        return false;
     }
 
-    pub fn set_modification_at(&mut self, idx: usize, modification_option: Option<Modification>) -> bool {
+    pub fn set_modification_at(&mut self, idx: usize, modification_option: Option<Modification>) -> Result<(), String> {
         match modification_option {
             Some(modification) => {
-                if (idx < self.modifications.len()) & (modification.get_position() == ModificationPosition::Anywhere) {
-                    self.set_modification_to_none_at(idx);
-                    self.weight += modification.get_mono_mass();
-                    self.modifications[idx] = Some(modification);
-                    return true;
+                if modification.get_position() != ModificationPosition::Anywhere {
+                    return Err("Modification is not for Anywhere".to_owned());
                 }
+                if modification.get_amino_acid_one_letter_code() != self.get_amino_acid_at(idx) {
+                    return Err(format!("Modification is not for the amino acid on index {}: {}", idx, self.get_n_terminus_amino_acid()))
+                }
+                self.set_modification_to_none_at(idx);
+                self.weight += modification.get_mono_mass();
+                self.modifications[idx] = Some(modification);
+                return Ok(());
             }
-            None => ()
+            None => {
+                self.modifications[idx] = None;
+                return Ok(());
+            }
         }
-        return false;
     }
 }
 
@@ -178,6 +196,18 @@ impl Decoy for ModifiedDecoy {
     fn get_length(&self) -> i32 {
         return self.base_decoy.get_length() as i32;
     }
+
+    fn get_c_terminus_amino_acid(&self) -> char {
+        return self.base_decoy.get_c_terminus_amino_acid();
+    }
+
+    fn get_n_terminus_amino_acid(&self) -> char {
+        return self.base_decoy.get_n_terminus_amino_acid();
+    }
+
+    fn get_amino_acid_at(&self, idx: usize) -> char {
+        return self.base_decoy.get_amino_acid_at(idx);
+    }
 }
 
 
@@ -187,7 +217,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
     }
 
     fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
-        match conn.query("SELECT * FROM base_decoys WHERE id = $1 LIMIT 1", &[primary_key]) {
+        match conn.query("SELECT * FROM modified_decoys WHERE id = $1 LIMIT 1", &[primary_key]) {
             Ok(rows) =>{
                 if rows.len() > 0 {
                     match Self::new_from_psql_rows(conn, &rows) {
@@ -204,7 +234,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
 
     fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i64, Option<i64>, Option<i64>, &Array<Option<i64>>, i64)) -> Result<Self, String> {
         match conn.query(
-            "SELECT * FROM base_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1",
+            "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1",
             &[&unique_identifier.0, &unique_identifier.1, &unique_identifier.2, &unique_identifier.3, &unique_identifier.4]
         ) {
             Ok(ref rows) if rows.len() > 0 => {
@@ -285,15 +315,15 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
 
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
-        return "SELECT * FROM base_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1";
+        return "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1";
     }
 
     fn get_insert_query() -> &'static str {
-        return "INSERT INTO base_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) VALUES ($1, $2, $3, $4) ON CONFLICT (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) DO NOTHING RETURNING id";
+        return "INSERT INTO modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) DO NOTHING RETURNING id";
     }
 
     fn get_update_query() -> &'static str {
-        return "UPDATE base_decoys SET base_decoy_id = $2, c_terminus_modification_id = $3, n_terminus_modification_id = $4, modification_ids = $5, weight = $6 WHERE id = $1";
+        return "UPDATE modified_decoys SET base_decoy_id = $2, c_terminus_modification_id = $3, n_terminus_modification_id = $4, modification_ids = $5, weight = $6 WHERE id = $1";
     }
 
     fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
