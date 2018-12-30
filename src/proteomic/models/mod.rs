@@ -6,3 +6,5 @@ pub mod peptide;
 pub mod peptide_protein_association;
 pub mod persistable;
 pub mod mass;
+#[cfg(test)]
+mod tests;
