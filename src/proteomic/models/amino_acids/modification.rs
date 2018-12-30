@@ -275,6 +275,26 @@ impl Persistable<Modification, i64, String> for Modification {
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("Modification is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM amino_acid_modifications WHERE id = $1;", &[&self.id]) {
+            Ok(_) => {
+                self.id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete Modification from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM amino_acid_modifications WHERE id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete Modifications from database; postgresql error is: {}", err))
+        }
+    }
+
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM amino_acid_modifications WHERE accession = $1 LIMIT 1";

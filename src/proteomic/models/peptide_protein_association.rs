@@ -8,17 +8,14 @@ use proteomic::models::persistable::Persistable;
 
 pub struct PeptideProteinAssociation {
     peptide_id: i64,
-    protein_id: i64,
-    is_persisted: bool
+    protein_id: i64
 }
 
 impl PeptideProteinAssociation {
     pub fn new(peptide: &Peptide, protein: &Protein) -> PeptideProteinAssociation {
         return PeptideProteinAssociation {
             peptide_id: peptide.get_primary_key(),
-            protein_id: protein.get_primary_key(),
-            is_persisted: false
-
+            protein_id: protein.get_primary_key()
         }
     }
 
@@ -48,8 +45,7 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
             Ok(ref rows) if rows.len() > 0 =>  Ok(
                 PeptideProteinAssociation {
                     peptide_id: rows.get(0).get(0),
-                    protein_id: rows.get(0).get(1),
-                    is_persisted: true
+                    protein_id: rows.get(0).get(1)
                 }
             ),
             Ok(_rows) => Err("NOHIT".to_owned()),
@@ -66,7 +62,6 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
             Ok(ref rows) if rows.len() > 0 => {
                 self.peptide_id = rows.get(0).get(0);
                 self.protein_id = rows.get(0).get(1);
-                self.is_persisted = true;
                 return Ok(());
             }
             Ok(_rows) => {
@@ -75,7 +70,6 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
                     Ok(peptide_protein_association) => {
                         self.peptide_id = peptide_protein_association.get_primary_key().0;
                         self.protein_id = peptide_protein_association.get_primary_key().1;
-                        self.is_persisted = true;
                         return Ok(());
                     },
                     Err(_err) => Err(format!("cannot inser not find peptides-protein-accession '({}, {})'", self.peptide_id, self.protein_id))
@@ -104,6 +98,27 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("ModifiedDecoys is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM peptides_proteins WHERE peptide_id = $1 AND protein_id = $2;", &[&self.peptide_id, &self.protein_id]) {
+            Ok(_) => {
+                self.peptide_id = 0;
+                self.protein_id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete ModifiedDecoy from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM peptides_proteins WHERE peptide_id IS NOT NULL AND protein_id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete ModifiedDecoys from database; postgresql error is: {}", err))
+        }
+    }
+
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT peptide_id, protein_id FROM peptides_proteins WHERE peptide_id = $1 and protein_id = $2 LIMIT 1";
@@ -123,7 +138,6 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
             Ok(ref rows) if rows.len() > 0 => {
                 self.peptide_id = rows.get(0).get(0);
                 self.protein_id = rows.get(0).get(1);
-                self.is_persisted = true;
                 return Ok(());
             },
             Ok(_rows) => Err("NORET".to_owned()),
@@ -136,7 +150,6 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
             Ok(ref rows) if rows.len() > 0 => {
                 self.peptide_id = rows.get(0).get(0);
                 self.protein_id = rows.get(0).get(1);
-                self.is_persisted = true;
                 return Ok(());
             },
             Ok(_rows) => Err("NORET".to_owned()),
@@ -154,7 +167,7 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
 
 
     fn is_persisted(&self) -> bool {
-        return self.is_persisted;
+        return (self.peptide_id > 0) & (self.protein_id > 0);
     }
 
     fn get_count(conn: &postgres::Connection) -> i64 {

@@ -7,6 +7,8 @@ pub trait Persistable<  T, PK, UI> {
     fn create(&mut self, conn: &postgres::Connection) -> Result<(), String>;
     fn update(&mut self, conn: &postgres::Connection) -> Result<(), String>;
     fn save(&mut self, conn: &postgres::Connection) -> Result<(), String>;
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String>;
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String>;
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str;
     fn get_insert_query() -> &'static str;

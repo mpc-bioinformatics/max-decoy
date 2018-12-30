@@ -20,26 +20,24 @@ pub struct Peptide {
     digest_enzym: String,               // CHAR(5)
     length: i32,                        // INTEGER
     number_of_missed_cleavages: i16,    // SMALLINT
-    weight: i64,                        // BIGINT
-    is_persisted: bool
+    weight: i64                         // BIGINT
 }
 
 impl Peptide {
     pub fn new(aa_sequence: String, digest_enzym: String, number_of_missed_cleavages: i16) -> Peptide {
         let generalized_aa_sequence: String = Peptide::gerneralize_aa_sequence(&aa_sequence);
         return Peptide{
-            id: -1,
+            id: 0,
             length: generalized_aa_sequence.len() as i32,
             weight: Peptide::calculate_weight(&generalized_aa_sequence),
             aa_sequence: generalized_aa_sequence,
             digest_enzym: digest_enzym,
-            number_of_missed_cleavages: number_of_missed_cleavages,
-            is_persisted: false
+            number_of_missed_cleavages: number_of_missed_cleavages
         }
     }
 
     pub fn is_new(&self) -> bool {
-        return self.id < 0;
+        return self.id < 1;
     }
 
     pub fn to_string(&self) -> String {
@@ -83,8 +81,7 @@ impl Persistable<Peptide, i64, String> for Peptide {
                             length: rows.get(0).get(2),
                             number_of_missed_cleavages: rows.get(0).get(3),
                             weight: rows.get(0).get(4),
-                            digest_enzym: rows.get(0).get(5),
-                            is_persisted: true
+                            digest_enzym: rows.get(0).get(5)
                         }
                     )
                 } else {
@@ -108,8 +105,7 @@ impl Persistable<Peptide, i64, String> for Peptide {
                     length: rows.get(0).get(2),
                     number_of_missed_cleavages: rows.get(0).get(3),
                     weight: rows.get(0).get(4),
-                    digest_enzym: rows.get(0).get(5),
-                    is_persisted: true
+                    digest_enzym: rows.get(0).get(5)
                 }
             ),
             Ok(_rows) => Err("NOHIT".to_owned()),
@@ -132,7 +128,6 @@ impl Persistable<Peptide, i64, String> for Peptide {
                 match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
                     Ok(peptide) => {
                         self.id = peptide.get_primary_key();
-                        self.is_persisted = true;
                         return Ok(());
                     },
                     Err(err) => Err(format!("cannot insert nor find peptide '{}'\n\torigina error: {}", self.aa_sequence, err))
@@ -161,6 +156,26 @@ impl Persistable<Peptide, i64, String> for Peptide {
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("Peptide is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM peptides WHERE id = $1;", &[&self.id]) {
+            Ok(_) => {
+                self.id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete Peptide from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM peptides WHERE id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete Peptides from database; postgresql error is: {}", err))
+        }
+    }
+
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM peptides WHERE aa_sequence = $1 LIMIT 1";
@@ -178,7 +193,6 @@ impl Persistable<Peptide, i64, String> for Peptide {
         match prepared_statement.query(&[&self.aa_sequence]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                self.is_persisted = true;
                 return Ok(());
             },
             Ok(_rows) => Err("NOHIT".to_owned()),
@@ -190,7 +204,6 @@ impl Persistable<Peptide, i64, String> for Peptide {
         match prepared_statement.query(&[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                self.is_persisted = true;
                 return Ok(());
             },
             Ok(_rows) => Err("NORET".to_owned()),
@@ -208,7 +221,7 @@ impl Persistable<Peptide, i64, String> for Peptide {
 
 
     fn is_persisted(&self) -> bool {
-        return self.is_persisted;
+        return self.id > 0;
     }
 
     fn get_count(conn: &postgres::Connection) -> i64 {
@@ -246,7 +259,6 @@ impl Clone for Peptide {
             number_of_missed_cleavages: self.number_of_missed_cleavages,
             weight: self.weight,
             digest_enzym: String::from(self.digest_enzym.as_str()),
-            is_persisted: self.is_persisted
         }
     }
 }

@@ -8,26 +8,24 @@ use self::postgres::Connection;
 use proteomic::models::persistable::Persistable;
 
 pub struct Protein {
-    id: i64,
-    accession: String,
-    header: String,
-    aa_sequence: String,
-    is_persisted: bool
+    id: i64,                // BIGSERIAL
+    accession: String,      // CHAR(10)
+    header: String,         // TEXT
+    aa_sequence: String     // TEXT
 }
 
 impl Protein {
     pub fn new(header: String, aa_sequence: String) -> Protein {
         return Protein {
-            id: -1,
+            id: 0,
             accession: Protein::extract_accession_from_header(&header),
             header: header,
-            aa_sequence: aa_sequence,
-            is_persisted: false
+            aa_sequence: aa_sequence
         }
     }
 
     pub fn is_new(&self) -> bool {
-        return self.id < 0;
+        return self.id < 1;
     }
 
 
@@ -79,8 +77,7 @@ impl Persistable<Protein, i64, String> for Protein {
                             id: rows.get(0).get(0),
                             accession: rows.get(0).get(1),
                             header: rows.get(0).get(2),
-                            aa_sequence: rows.get(0).get(3),
-                            is_persisted: true
+                            aa_sequence: rows.get(0).get(3)
                         }
                     )
                 } else {
@@ -101,8 +98,7 @@ impl Persistable<Protein, i64, String> for Protein {
                     id: rows.get(0).get(0),
                     accession: rows.get(0).get(1),
                     header: rows.get(0).get(2),
-                    aa_sequence: rows.get(0).get(3),
-                    is_persisted: true
+                    aa_sequence: rows.get(0).get(3)
                 }
             ),
             Ok(_rows) => Err("NOHIT".to_owned()),
@@ -125,7 +121,6 @@ impl Persistable<Protein, i64, String> for Protein {
                 match Self::find_by_unique_identifier(conn, &self.accession) {
                     Ok(protein) => {
                         self.id = protein.get_primary_key();
-                        self.is_persisted = true;
                         return Ok(());
                     },
                     Err(err) => Err(format!("cannot insert nor find protein '{}'\n\torginal error {}", self.accession, err))
@@ -154,6 +149,26 @@ impl Persistable<Protein, i64, String> for Protein {
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("Protein is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM proteins WHERE id = $1;", &[&self.id]) {
+            Ok(_) => {
+                self.id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete Protein from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM proteins WHERE id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete Proteins from database; postgresql error is: {}", err))
+        }
+    }
+
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM proteins WHERE accession = $1 LIMIT 1";
@@ -172,7 +187,6 @@ impl Persistable<Protein, i64, String> for Protein {
         match prepared_statement.query(&[&self.accession]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                self.is_persisted = true;
                 return Ok(());
             },
             Ok(_rows) => Err("NOHIT".to_owned()),
@@ -184,7 +198,6 @@ impl Persistable<Protein, i64, String> for Protein {
         match prepared_statement.query(&[&self.accession, &self.header, &self.aa_sequence]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                self.is_persisted = true;
                 return Ok(());
             },
             Ok(_rows) =>  Err("NORET".to_owned()),
@@ -202,7 +215,7 @@ impl Persistable<Protein, i64, String> for Protein {
 
 
     fn is_persisted(&self) -> bool {
-        return self.is_persisted;
+        return self.id > 0;
     }
 
     fn get_count(conn: &postgres::Connection) -> i64 {

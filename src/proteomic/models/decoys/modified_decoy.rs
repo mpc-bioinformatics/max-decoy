@@ -356,13 +356,33 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("ModifiedDecoy is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM modified_decoys WHERE id = $1;", &[&self.id]) {
+            Ok(_) => {
+                self.id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete ModifiedDecoy from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM modified_decoys WHERE id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete ModifiedDecoys from database; postgresql error is: {}", err))
+        }
+    }
+
 
     fn is_persisted(&self) -> bool {
         return self.id > 0;
     }
 
     fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM decoys", &[]) {
+        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM modified_decoys", &[]) {
             Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
             _ => -1
         };

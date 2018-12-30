@@ -145,6 +145,26 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
         }
     }
 
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+        if !self.is_persisted() {
+            return Err("BaseDecoy is not persisted".to_owned());
+        }
+        match conn.execute("DELETE FROM base_decoys WHERE id = $1;", &[&self.id]) {
+            Ok(_) => {
+                self.id = 0;
+                return Ok(());
+            },
+            Err(err) => Err(format!("could not delete BaseDecoy from database; postgresql error is: {}", err))
+        }
+    }
+
+    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+        match conn.execute("DELETE FROM base_decoys WHERE id IS NOT NULL;", &[]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(format!("could not delete BaseDecoys from database; postgresql error is: {}", err))
+        }
+    }
+
 
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
         return "SELECT id FROM base_decoys WHERE aa_sequence = $1 LIMIT 1";
@@ -194,7 +214,7 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
     }
 
     fn get_count(conn: &postgres::Connection) -> i64 {
-        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM decoys", &[]) {
+        return match conn.query("SELECT cast(count(id) AS BIGINT) FROM base_decoys", &[]) {
             Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, i64>(0),
             _ => -1
         };
