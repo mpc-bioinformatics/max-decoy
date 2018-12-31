@@ -2,6 +2,8 @@ extern crate postgres;
 extern crate postgres_array;
 
 use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 use self::postgres::Connection;
 use self::postgres_array::Array;
@@ -23,14 +25,14 @@ pub struct ModifiedDecoy {
 }
 
 impl ModifiedDecoy {
-    pub fn new(base_decoy: &BaseDecoy) -> ModifiedDecoy {
+    pub fn new(base_decoy: &BaseDecoy, c_terminus_modification: Option<Modification>, n_terminus_modification: Option<Modification>, modifications: &Vec<Option<Modification>>, weight: i64) -> ModifiedDecoy {
         return Self {
-            modifications: vec![None; base_decoy.get_length() as usize],
-            weight: base_decoy.get_weight(),
-            id: -1,
+            id: 0,
             base_decoy: base_decoy.clone(),
-            c_terminus_modification: None,
-            n_terminus_modification: None
+            c_terminus_modification: c_terminus_modification,
+            n_terminus_modification: n_terminus_modification,
+            modifications: modifications.clone(),
+            weight: weight
         }
     }
 
@@ -44,100 +46,6 @@ impl ModifiedDecoy {
         }
         return Box::new(Array::from_vec(modification_ids, self.base_decoy.get_length()));
     }
-
-    fn set_c_terminus_modification_to_none(&mut self) {
-        match &self.c_terminus_modification {
-            Some(modification) => self.weight -= modification.get_mono_mass(),
-            None => ()
-        };
-        self.c_terminus_modification = None;
-    }
-
-    fn set_n_terminus_modification_to_none(&mut self) {
-        match &self.n_terminus_modification {
-            Some(modification) => self.weight -= modification.get_mono_mass(),
-            None => ()
-        };
-        self.n_terminus_modification = None;
-    }
-
-    fn set_modification_to_none_at(&mut self, idx: usize) {
-        if idx < self.modifications.len() {
-            match &self.modifications.get(idx) {
-                Some(modification_option) => {
-                    match modification_option {
-                        Some(modification) => self.weight -= modification.get_mono_mass(),
-                        None => ()
-                    }
-                }
-                None => ()
-            };
-            self.modifications[idx] = None;
-        }
-    }
-
-    pub fn set_c_terminus_modification(&mut self, new_c_terminus_modification_option: Option<Modification>) -> Result<(), String> {
-        match new_c_terminus_modification_option {
-            Some(modification) => {
-                if modification.get_position() != ModificationPosition::CTerminus {
-                    return Err("Modification is not for C-Terminus".to_owned());
-                }
-                if modification.get_amino_acid_one_letter_code() == self.get_c_terminus_amino_acid() {
-                    return Err(format!("Modification is not for the amino acid on C-Terminus: {}", self.get_c_terminus_amino_acid()))
-                }
-                self.set_c_terminus_modification_to_none();
-                self.weight += modification.get_mono_mass();
-                self.c_terminus_modification = Some(modification);
-                return Ok(());
-            }
-            None => {
-                self.set_c_terminus_modification_to_none();
-                return Ok(());
-            }
-        }
-    }
-
-    pub fn set_n_terminus_modification(&mut self, new_n_terminus_modification: Option<Modification>) -> Result<(), String> {
-        match new_n_terminus_modification {
-            Some(modification) => {
-                if modification.get_position() != ModificationPosition::NTerminus {
-                    return Err("Modification is not for N-Terminus".to_owned());
-                }
-                if modification.get_amino_acid_one_letter_code() == self.get_n_terminus_amino_acid() {
-                    return Err(format!("Modification is not for the amino acid on N-Terminus: {}", self.get_n_terminus_amino_acid()))
-                }
-                self.set_n_terminus_modification_to_none();
-                self.weight += modification.get_mono_mass();
-                self.n_terminus_modification = Some(modification);
-                return Ok(());
-            }
-            None => {
-                self.set_n_terminus_modification_to_none();
-                return Ok(());
-            }
-        }
-    }
-
-    pub fn set_modification_at(&mut self, idx: usize, modification_option: Option<Modification>) -> Result<(), String> {
-        match modification_option {
-            Some(modification) => {
-                if modification.get_position() != ModificationPosition::Anywhere {
-                    return Err("Modification is not for Anywhere".to_owned());
-                }
-                if modification.get_amino_acid_one_letter_code() != self.get_amino_acid_at(idx) {
-                    return Err(format!("Modification is not for the amino acid on index {}: {}", idx, self.get_n_terminus_amino_acid()))
-                }
-                self.set_modification_to_none_at(idx);
-                self.weight += modification.get_mono_mass();
-                self.modifications[idx] = Some(modification);
-                return Ok(());
-            }
-            None => {
-                self.modifications[idx] = None;
-                return Ok(());
-            }
-        }
-    }
 }
 
 impl Decoy for ModifiedDecoy {
@@ -150,8 +58,36 @@ impl Decoy for ModifiedDecoy {
     }
 
     fn get_header(&self) -> String {
-        // add modifications to header here and return
-        return self.base_decoy.get_header();
+        // create a HashMap with key "mod_accession|mod_name" and value Vec<String> which contains the positions of the modification
+        let mut accession_header_position_map: HashMap<String, Vec<String>> = HashMap::new();
+        for idx in 0..(self.modifications.len()) {
+            match &self.modifications[idx] {
+                Some(modification) => {
+                    let peff_notification_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                    let positions = match accession_header_position_map.entry(peff_notification_of_accession_and_name) {
+                        Vacant(entry) => entry.insert(Vec::new()),
+                        Occupied(entry) => entry.into_mut(),
+                    };
+                    positions.push(idx.to_string());
+                },
+                None => ()
+            }
+        }
+        let mut mod_res_unimod: String = String::new();
+        for (accession_and_header, positions) in &accession_header_position_map {
+            mod_res_unimod.push_str(
+                format!(
+                    "({}|{})",
+                    positions.join(","),
+                    accession_and_header
+                ).as_str()
+            );
+        }
+        return format!(
+            "{} ModResUniMod={}",
+            self.base_decoy.get_header(),
+            mod_res_unimod
+        )
     }
 
     fn get_aa_sequence(&self) -> String {

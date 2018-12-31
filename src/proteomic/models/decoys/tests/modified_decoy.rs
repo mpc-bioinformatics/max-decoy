@@ -40,12 +40,9 @@ fn modified_decoy_insert() {
         Ok(_) => println!("Modification successfully created"),
         Err(err) => panic!(err)
     }
-    let mut modified_decoy: ModifiedDecoy = ModifiedDecoy::new(&base_decoy);
-    match modified_decoy.set_modification_at(0, Some(modification.clone())) {
-        Ok(_) => println!("Modification applied"),
-        Err(err) => panic!("Could not set Modification on ModifiedDecoy, original error: {}", err)
-    }
-    assert_eq!(base_decoy.get_weight() + modification.get_mono_mass(), modified_decoy.get_weight());
+    let weight: i64 = base_decoy.get_weight() + modification.get_mono_mass();
+    let modifications: Vec<Option<Modification>> = vec![Some(modification), None, None, None];
+    let mut modified_decoy: ModifiedDecoy = ModifiedDecoy::new(&base_decoy, None, None, &modifications, weight);
     match modified_decoy.create(&conn) {
         Ok(_) => println!("ModifiedDecoy successfully created"),
         Err(err) => panic!("ModifiedDecoy not created, original error {}", err)
