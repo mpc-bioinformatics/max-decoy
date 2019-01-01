@@ -32,7 +32,8 @@ impl BaseDecoy {
 impl Decoy for BaseDecoy {
     fn to_string(&self) -> String {
         return format!(
-            "proteomic::modes::decoys::base_decoy::BaseDecoy\n\taa_sequence => {}\n\tweight => {}", 
+            "proteomic::modes::decoys::base_decoy::BaseDecoy\n\theader => {}\n\taa_sequence => {}\n\tweight => {}",
+            self.header,
             self.aa_sequence, 
             mass::convert_mass_to_float(self.weight)
         );

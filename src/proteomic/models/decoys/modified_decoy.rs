@@ -51,7 +51,8 @@ impl ModifiedDecoy {
 impl Decoy for ModifiedDecoy {
     fn to_string(&self) -> String {
         return format!(
-            "proteomic::modes::decoys::base_decoy::ModifiedDecoy\n\taa_sequence => {}\n\tweight => {}",
+            "proteomic::modes::decoys::modified_decoy::ModifiedDecoy\n\theader => {}\n\taa_sequence => {}\n\tweight => {}",
+            self.get_header(),
             self.get_aa_sequence(),
             mass::convert_mass_to_float(self.get_weight())
         );
