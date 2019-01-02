@@ -18,7 +18,8 @@ pub struct NewDecoy {
     lower_weight_limit: i64,
     upper_weight_limit: i64,
     n_terminus_modification: Option<Modification>,
-    c_terminus_modification: Option<Modification>
+    c_terminus_modification: Option<Modification>,
+    number_of_modifications: i32
 }
 
 impl NewDecoy {
@@ -32,12 +33,21 @@ impl NewDecoy {
             lower_weight_limit: lower_weight_limit,
             upper_weight_limit: upper_weight_limit,
             n_terminus_modification: None,
-            c_terminus_modification: None
+            c_terminus_modification: None,
+            number_of_modifications: 0
         }
     }
 
     pub fn get_modified_weight(&self) -> i64 {
         return self.modified_weight;
+    }
+
+    pub fn get_difference_between_modified_weight_and_upper_weight_limit(&self) -> i64 {
+        return self.upper_weight_limit - self.modified_weight;
+    }
+
+    pub fn get_number_of_modifications(&self) -> i32 {
+        return self.number_of_modifications;
     }
 
     pub fn hits_mass_tolerance(&self) -> bool {
@@ -69,11 +79,13 @@ impl NewDecoy {
                         ModificationPosition::NTerminus => {
                             self.modified_weight += modification.get_mono_mass();
                             self.n_terminus_modification = Some((*modification).clone());
+                            self.number_of_modifications += 1;
                         }
                         // modification for anywhere
                         ModificationPosition::Anywhere => {
                             self.modified_weight += modification.get_mono_mass();
                             self.modifications.push(Some((*modification).clone()));
+                            self.number_of_modifications += 1;
                         }
                         // else
                         _ => self.modifications.push(None)
@@ -84,11 +96,13 @@ impl NewDecoy {
                         ModificationPosition::CTerminus => {
                             self.modified_weight += modification.get_mono_mass();
                             self.c_terminus_modification = Some((*modification).clone());
+                            self.number_of_modifications += 1;
                         }
                         // modification for anywhere
                         ModificationPosition::Anywhere => {
                             self.modified_weight += modification.get_mono_mass();
                             self.modifications.push(Some((*modification).clone()));
+                            self.number_of_modifications += 1;
                         }
                         // else
                         _ => self.modifications.push(None)
@@ -125,7 +139,10 @@ impl NewDecoy {
     fn set_c_terminus_modification_to_none(&mut self) -> Option<Modification> {
         let c_terminus_modification_option_clone: Option<Modification> = self.c_terminus_modification.clone();
         match &self.c_terminus_modification {
-            Some(modification) => self.modified_weight -= modification.get_mono_mass(),
+            Some(modification) => {
+                self.modified_weight -= modification.get_mono_mass();
+                self.number_of_modifications -= 1;
+            },
             None => ()
         };
         self.c_terminus_modification = None;
