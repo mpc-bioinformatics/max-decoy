@@ -42,10 +42,6 @@ impl NewDecoy {
         return self.modified_weight;
     }
 
-    pub fn get_difference_between_modified_weight_and_upper_weight_limit(&self) -> i64 {
-        return self.upper_weight_limit - self.modified_weight;
-    }
-
     pub fn get_number_of_modifications(&self) -> i32 {
         return self.number_of_modifications;
     }
