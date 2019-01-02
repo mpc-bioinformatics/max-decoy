@@ -8,6 +8,7 @@ use self::postgres::Connection;
 
 use proteomic::models::mass;
 use proteomic::models::persistable::Persistable;
+use proteomic::utility::database_connection::DatabaseConnection;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ModificationPosition {
@@ -86,7 +87,8 @@ impl Modification {
 
     pub fn to_string(&self) -> String {
         return format!(
-            "proteomic::models::amino_acids::Modification\n\taccession => {}\n\tname => {}\n\tposition => {}\n\tis fix => {}\n\tamino acid => {}\n\tmono_mass => {}",
+            "proteomic::models::amino_acids::modification::Modification\n\tid => {}\n\taccession => {}\n\tname => {}\n\tposition => {}\n\tis fix => {}\n\tamino acid => {}\n\tmono_mass => {}",
+            self.id,
             self.accession,
             self.name,
             Self::position_to_string(self.position),
@@ -133,6 +135,7 @@ impl Modification {
     }
 
     pub fn create_from_csv_file(modification_csv_file_path: &str) -> Box<Vec<Modification>> {
+        let conn: postgres::Connection = DatabaseConnection::get_database_connection();
         let mut modifications: Vec<Modification> = Vec::new();
         let csv_path = Path::new(modification_csv_file_path);
         let mut reader = match csv::Reader::from_path(&csv_path) {
@@ -142,6 +145,9 @@ impl Modification {
         for row in reader.records() {
             let row = row.unwrap();
             modifications.push(Self::new_from_csv_row(&row));
+            if let Some(modification) = modifications.last_mut() {
+                modification.create(&conn);
+            };
         }
         return Box::new(modifications);
     }
