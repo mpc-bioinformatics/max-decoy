@@ -1,6 +1,6 @@
 /// Code is from https://rosettacode.org/wiki/Combinations#Rust
 
-struct NChooseK<T> {
+pub struct NChooseK<T> {
     data_len: usize,
     chunk_len: usize,
     min: usize,
@@ -9,7 +9,7 @@ struct NChooseK<T> {
 }
  
 impl<T: Clone> NChooseK<T> {
-    fn new(chunk_len: i32, data: Vec<T>) -> Self {
+    pub fn new(chunk_len: i32, data: Vec<T>) -> Self {
         let d_len = data.len();
         let min = 2usize.pow(chunk_len as u32) - 1;
         let max = 2usize.pow(d_len as u32) - 2usize.pow((d_len - chunk_len as usize) as u32);
