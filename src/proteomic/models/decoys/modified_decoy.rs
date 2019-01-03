@@ -46,6 +46,14 @@ impl ModifiedDecoy {
         }
         return Box::new(Array::from_vec(modification_ids, self.base_decoy.get_length()));
     }
+
+    pub fn get_c_terminus_modification(&self) -> &Option<Modification> {
+        return &self.c_terminus_modification;
+    }
+
+    pub fn get_n_terminus_modification(&self) -> &Option<Modification> {
+        return &self.n_terminus_modification
+    }
 }
 
 impl Decoy for ModifiedDecoy {
@@ -342,11 +350,12 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
     }
 }
 
-
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for ModifiedDecoy {
     fn eq(&self, other: &ModifiedDecoy) -> bool {
-       return (self.get_aa_sequence() == *other.get_aa_sequence()) & (self.weight == other.get_weight());
+       return (self.get_aa_sequence() == *other.get_aa_sequence()) 
+        & (self.weight == other.get_weight())
+        & (self.get_header() == *other.get_header());
     }
 }
 
@@ -357,6 +366,7 @@ impl Eq for ModifiedDecoy {}
 impl Hash for ModifiedDecoy {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.get_aa_sequence().hash(state);
+        self.get_header().hash(state);
     }
 }
 
