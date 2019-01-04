@@ -10,6 +10,17 @@ use proteomic::models::mass;
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
 use proteomic::utility::database_connection::DatabaseConnection;
 
+// it is very important that this dummy is in inserted into the databse first. 
+// because postgresql does not consider null-values during testing of unique constraints the follwoing two sql commands to create a modified decoy will both succeded_
+//     1. insert into modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) values (204, null, null, '{null, null, null, null}', 1000000);
+//     2. insert into modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) values (204, null, null, '{null, null, null, null}', 1000000);
+// in fact we ended with two redundant ModifiedDecoys, which is bad.
+// the plan is to use the id of the dummy modification instead of allowing null during insert.
+// vice versa we can replace the dummy modification with None during parsing sql results to object.
+// id = -1 will not interfere with any other modification, because BIGSERIAL begins per default with 1.
+const DUMMY_MODIFICATION_VALUES: (i64, &str, &str, ModificationPosition, bool, char, i64) = (-1, "max-decoy-internal:dummy", "DO NOT DELETE THIS MODIFICATION!", ModificationPosition::Anywhere, true, '!', 0);
+
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ModificationPosition {
     Anywhere,
@@ -150,6 +161,36 @@ impl Modification {
             };
         }
         return Box::new(modifications);
+    }
+
+    pub fn get_dummy_modification() -> Self {
+        return Self {
+            id: DUMMY_MODIFICATION_VALUES.0,
+            accession: DUMMY_MODIFICATION_VALUES.1.to_owned(),
+            name: DUMMY_MODIFICATION_VALUES.2.to_owned(),
+            position: DUMMY_MODIFICATION_VALUES.3,
+            is_fix: DUMMY_MODIFICATION_VALUES.4,
+            amino_acid_one_letter_code: DUMMY_MODIFICATION_VALUES.5,
+            mono_mass: DUMMY_MODIFICATION_VALUES.6
+        };
+    }
+
+    pub fn make_sure_dummy_modification_exists() {
+        let dummy_modification = Self::get_dummy_modification();
+        let conn = DatabaseConnection::get_database_connection();
+        let mut query: String = format!("SELECT EXISTS (SELECT id FROM {} WHERE id = $1)", Self::get_table_name());
+        let dummmy_modification_exists = match conn.query(query.as_str(), &[&dummy_modification.get_primary_key()]) {
+            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, bool>(0),
+            Ok(_rows) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: Could not check if dummy-modification exists. Got not return from sql server."),
+            Err(err) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: {}", handle_postgres_error(&err))
+        };
+        query = format!("INSERT INTO {} (id, accession, name, position, is_fix, amino_acid_one_letter_code, mono_mass) VALUES ($1, $2, $3, $4, $5, $6, $7)", Self::get_table_name());
+        if !dummmy_modification_exists {
+            match conn.execute(query.as_str(), &[&dummy_modification.get_primary_key(), &dummy_modification.get_accession(), &dummy_modification.get_name(), &Self::position_to_int(dummy_modification.get_position()), &dummy_modification.is_fix(), &dummy_modification.get_amino_acid_one_letter_code().to_string(), &dummy_modification.get_mono_mass()]) {
+                Ok(_) => (),
+                Err(err) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: {}", handle_postgres_error(&err))
+            }
+        }
     }
 }
 
