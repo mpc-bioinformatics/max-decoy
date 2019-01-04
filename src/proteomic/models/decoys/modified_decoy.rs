@@ -36,15 +36,55 @@ impl ModifiedDecoy {
         }
     }
 
-    fn modifications_to_psql_array(&self) -> Box<Array<Option<i64>>> {
-        let mut modification_ids: Vec<Option<i64>> = Vec::new();
+    fn modifications_to_psql_array(&self) -> Box<Array<i64>> {
+        let dummy_modification = Modification::get_dummy_modification();
+        let mut modification_ids: Vec<i64> = Vec::new();
         for modification_option in self.modifications.iter() {
             match modification_option {
-                Some(modification) => modification_ids.push(Some(modification.get_primary_key())),
-                None => modification_ids.push(None)
+                Some(modification) => modification_ids.push(modification.get_primary_key()),
+                None => modification_ids.push(dummy_modification.get_primary_key())
             }
         }
         return Box::new(Array::from_vec(modification_ids, self.base_decoy.get_length()));
+    }
+
+
+    fn modifications_from_psql_array(conn: &postgres::Connection, modification_ids: &Array<i64>) -> Result<Vec<Option<Modification>>, QueryError> {
+        let dummy_modification = Modification::get_dummy_modification();
+        // cast ids to string and join them with ', '
+        let modification_ids_for_query: String = modification_ids.iter().map(|id| id.to_string()).collect::<Vec<String>>().join(", ");
+        // condition for 'SELECT amino_acid_modifications WHERE id IN (id1, id2, ...)' 
+        let condition: String = format!("id IN ({})", modification_ids_for_query);
+        let modifications = match Modification::select_where(conn, condition.as_str(), &[]) {
+            Ok(modifications) => modifications,
+            Err(err) => return Err(err)
+        };
+        // check if for every id a modification is found
+        if modifications.len() != modification_ids.iter().count() {
+            // collect ids of missing modifications
+            let mut ids_of_missing_modifications: Vec<i64> = Vec::new();
+            'id_loop: for id in modification_ids.iter() {
+                'mod_loop: for modification in modifications.iter() {
+                    if modification.get_primary_key() == *id {
+                        continue 'id_loop;
+                    }
+                }
+                ids_of_missing_modifications.push(*id);
+            }
+            let missing_ids_string: String = ids_of_missing_modifications.iter().map(|id| id.to_string()).collect::<Vec<String>>().join(", ");
+            return Err(QueryError::AssociatedRecordNotFound(format!("Modifications(ids: [{}])", missing_ids_string)));
+        }
+        let mut modification_options: Vec<Option<Modification>> = Vec::new();
+        // wrap modifications in Option
+        for modification in modifications.iter(){
+            // replace all dummy-modifications with None
+            if modification.get_primary_key() == dummy_modification.get_primary_key(){
+                modification_options.push(None);
+            } else {
+                modification_options.push(Some(modification.clone()));
+            }
+        }
+        return Ok(modification_options);
     }
 
     pub fn get_c_terminus_modification(&self) -> &Option<Modification> {
@@ -125,7 +165,7 @@ impl Decoy for ModifiedDecoy {
 }
 
 
-impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Option<i64>>, i64)> for ModifiedDecoy {
+impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for ModifiedDecoy {
     fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, FromSqlRowError> {
         let conn = DatabaseConnection::get_database_connection();
         let base_decoy: BaseDecoy = match BaseDecoy::find(&conn, &row.get::<usize, i64>(1)) {
@@ -135,26 +175,48 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
                 _ => return Err(FromSqlRowError::InnerQueryError(query_error))                          // else a sql error occures
             }
         };
+
+        let dummy_modification: Modification = Modification::get_dummy_modification();
+
+        let c_terminus_modification_id: i64 = row.get::<usize, i64>(2);
+        let n_terminus_modification_id: i64 = row.get::<usize, i64>(3);
+
+        let mut c_terminus_modification: Option<Modification> = None;
+        if c_terminus_modification_id != dummy_modification.get_primary_key() {
+            match Modification::find(&conn, &c_terminus_modification_id) {
+                Ok(modification) => c_terminus_modification = Some(modification),
+                Err(error) => match error {
+                    QueryError::NoMatch => return Err(FromSqlRowError::AssociatedRecordNotFound(format!("CTerminusModification(id: {})", c_terminus_modification_id))),
+                    _ => return Err(FromSqlRowError::InnerQueryError(error))  // else a sql error occures
+                }
+            }
+        }
+            
+        let mut n_terminus_modification: Option<Modification> = None;
+        if n_terminus_modification_id != dummy_modification.get_primary_key() {
+            match Modification::find(&conn, &n_terminus_modification_id) {
+                Ok(modification) => n_terminus_modification = Some(modification),
+                Err(error) => match error {
+                    QueryError::NoMatch => return Err(FromSqlRowError::AssociatedRecordNotFound(format!("NTerminusModification(id: {})", n_terminus_modification_id))),
+                    _ => return Err(FromSqlRowError::InnerQueryError(error))  // else a sql error occures
+                }
+            }
+        }
+
+        let modification_ids: Array<i64> = row.get::<usize, Array<i64>>(4);
+        let modifications: Vec<Option<Modification>> = match Self::modifications_from_psql_array(&conn, &modification_ids) {
+            Ok(modifications) => modifications,
+            Err(err) => return Err(FromSqlRowError::InnerQueryError(err))
+        };
+
         return Ok (
             Self {
-                modifications: vec![None; base_decoy.get_length() as usize],
                 id: row.get(0),
                 base_decoy: base_decoy,
-                c_terminus_modification: match Modification::find(&conn, &row.get::<usize, i64>(2)) {
-                    Ok(modification) => Some(modification),
-                    Err(error) => match error {
-                        QueryError::NoMatch => None,                                // if error is NOHIT there is simply no record
-                        _ => return Err(FromSqlRowError::InnerQueryError(error))  // else a sql error occures
-                    }
-                },
-                n_terminus_modification: match Modification::find(&conn, &row.get::<usize, i64>(2)) {
-                    Ok(modification) => Some(modification),
-                    Err(error) => match error {
-                        QueryError::NoMatch => None,                                    // if error is NOHIT there is simply no record
-                        _ => return Err(FromSqlRowError::InnerQueryError(error))      // else a sql error occures
-                    }
-                },
-                weight: row.get(4)
+                c_terminus_modification: c_terminus_modification,
+                n_terminus_modification: n_terminus_modification,
+                modifications: modifications,
+                weight: row.get(5)
             }
         );
     }
@@ -177,7 +239,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
         }
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i64, Option<i64>, Option<i64>, &Array<Option<i64>>, i64)) -> Result<Self, QueryError> {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i64, i64, i64, &Array<i64>, i64)) -> Result<Self, QueryError> {
         match conn.query(
             "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1",
             &[&unique_identifier.0, &unique_identifier.1, &unique_identifier.2, &unique_identifier.3, &unique_identifier.4]
@@ -196,15 +258,14 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
 
 
     fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let c_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let dummy_modification = Modification::get_dummy_modification();
+        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let n_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
         let modification_ids_boxed = self.modifications_to_psql_array();
         match conn.query(
@@ -233,15 +294,14 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
         if !self.is_persisted() {
             return Err(QueryError::RecordIsNotPersisted);
         }
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let c_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let dummy_modification = Modification::get_dummy_modification();
+        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let n_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
         let modification_ids_boxed = self.modifications_to_psql_array();
         match conn.query(
@@ -300,15 +360,14 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
     }
 
     fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let c_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let dummy_modification = Modification::get_dummy_modification();
+        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let n_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
         match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, self.modifications_to_psql_array().as_ref(), &self.weight]) {
             Ok(ref rows) if rows.len() > 0 => {
@@ -321,15 +380,14 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
     }
 
     fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let c_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let dummy_modification = Modification::get_dummy_modification();
+        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let n_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
         match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, self.modifications_to_psql_array().as_ref(), &self.weight]) {
             Ok(ref rows) if rows.len() > 0 => {
@@ -342,15 +400,14 @@ impl Persistable<ModifiedDecoy, i64, (i64, Option<i64>, Option<i64>, &Array<Opti
     }
 
     fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let c_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let dummy_modification = Modification::get_dummy_modification();
+        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
-        // Option<i64> is nullable for sql see: https://github.com/sfackler/rust-postgres#type-correspondence
-        let n_terminus_modification_id: Option<i64> = match &self.c_terminus_modification {
-            Some(modification) => Some(modification.get_primary_key()),
-            None => None
+        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
+            Some(modification) => modification.get_primary_key(),
+            None => dummy_modification.get_primary_key()
         };
         match prepared_statement.query(&[&self.id, &self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, self.modifications_to_psql_array().as_ref(), &self.weight]) {
             Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
