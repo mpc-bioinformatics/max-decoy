@@ -7,7 +7,7 @@ use std::path::Path;
 use self::postgres::Connection;
 
 use proteomic::models::mass;
-use proteomic::models::persistable::Persistable;
+use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
 use proteomic::utility::database_connection::DatabaseConnection;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -190,7 +190,7 @@ impl Hash for Modification {
 }
 
 impl Persistable<Modification, i64, String> for Modification {
-    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, FromSqlRowError> {
         return Ok (
             Self {
                 id: row.get(0),
@@ -208,86 +208,73 @@ impl Persistable<Modification, i64, String> for Modification {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
+    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, QueryError> {
         match conn.query("SELECT * FROM amino_acid_modifications WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(rows) =>{
-                if rows.len() > 0 {
-                    Ok(
-                        Modification{
-                            id: rows.get(0).get(0),
-                            accession: rows.get(0).get(1),
-                            name: rows.get(0).get(2),
-                            position: Self::position_from_int(rows.get(0).get::<usize, i16>(3)),
-                            is_fix: rows.get(0).get(4),
-                            amino_acid_one_letter_code: (rows.get(0).get::<usize, String>(5)).chars().next().unwrap(),
-                            mono_mass: rows.get(0).get(6)
-                        }
-                    )
-                } else {
-                    Err("NOHIT".to_owned())
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
                 }
             },
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, String> {
-        match conn.query(
-            "SELECT * FROM amino_acid_modifications WHERE accession = $1 LIMIT 1",
-            &[unique_identifier]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(
-                Modification{
-                    id: rows.get(0).get(0),
-                    accession: rows.get(0).get(1),
-                    name: rows.get(0).get(2),
-                    position: Self::position_from_int(rows.get(0).get::<usize, i16>(3)),
-                    is_fix: rows.get(0).get(4),
-                    amino_acid_one_letter_code: (rows.get(0).get::<usize, String>(5)).chars().next().unwrap(),
-                    mono_mass: rows.get(0).get(6)
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, QueryError> {
+        match conn.query("SELECT * FROM amino_acid_modifications WHERE accession = $1 LIMIT 1", &[unique_identifier]) {
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
                 }
-            ),
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            },
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
 
-    fn create(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         match conn.query(
             Self::get_insert_query(),
             &[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]
         ) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id =  rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Created);
             },
             Ok(_rows) => {
                 // zero rows means there are a conflict on insert, so the modification exists already
                 match Self::find_by_unique_identifier(conn, &self.accession) {
                     Ok(modification) => {
                         self.id = modification.get_primary_key();
-                        return Ok(());
+                        return Ok(QueryOk::AlreadyExists);
                     },
-                    Err(err) => Err(format!("cannot insert nor find modification '{}'\n\toriginal error: {}", self.accession, err))
+                    Err(err) => Err(err)
                 }
             }
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn update(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        if !self.is_persisted() {
+            return Err(QueryError::RecordIsNotPersisted);
+        }
         match conn.query(
             Self::get_update_query(),
             &[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]
         ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn save(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if self.is_persisted() {
             return self.update(conn);
         } else {
@@ -295,23 +282,23 @@ impl Persistable<Modification, i64, String> for Modification {
         }
     }
 
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if !self.is_persisted() {
-            return Err("Modification is not persisted".to_owned());
+            return Err(QueryError::RecordIsNotPersisted);
         }
         match conn.execute("DELETE FROM amino_acid_modifications WHERE id = $1;", &[&self.id]) {
             Ok(_) => {
                 self.id = 0;
-                return Ok(());
+                return Ok(QueryOk::Deleted);
             },
-            Err(err) => Err(format!("could not delete Modification from database; postgresql error is: {}", err))
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         match conn.execute("DELETE FROM amino_acid_modifications WHERE id IS NOT NULL;", &[]) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(format!("could not delete Modifications from database; postgresql error is: {}", err))
+            Ok(_) => Ok(QueryOk::Deleted),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
@@ -332,33 +319,33 @@ impl Persistable<Modification, i64, String> for Modification {
         return "UPDATE amino_acid_modifications SET accession = $2, name = $3, position = $4, is_fix = $5, amino_acid_one_letter_code = $6, mono_mass = $7 WHERE id = $1";
     }
 
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.accession]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Selected);
             },
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Created);
             },
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]) {
-            Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 

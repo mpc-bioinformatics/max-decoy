@@ -15,7 +15,7 @@ fn modified_decoy_insert() {
     Modification::delete_all(&conn);
     let mut modified_decoy_count: i64 = match ModifiedDecoy::get_count(&conn) {
         Ok(count) => count,
-        Err(err) => panic!(err)
+        Err(err) => panic!("proteomic::models::decoys::tests::modified_decoy::modified_decoy_insert at first ModifiedDecoy::get_count(): {}", err)
     };
     assert_eq!(modified_decoy_count, 0);
     let aa_sequence: &str = "CGKMM";
@@ -26,7 +26,7 @@ fn modified_decoy_insert() {
     );
     match base_decoy.create(&conn) {
         Ok(_) => println!("BaseDecoy successfully created"),
-        Err(err) => panic!("BaseDecoy not created, original error {}", err)
+        Err(err) => panic!("proteomic::models::decoys::tests::modified_decoy::modified_decoy_insert at BaseDecoy.create(): {}", err)
     }
     let mut modification: Modification = Modification::new(
         "modified_decoy_test:insert", 
@@ -38,19 +38,19 @@ fn modified_decoy_insert() {
     );
     match modification.create(&conn) {
         Ok(_) => println!("Modification successfully created"),
-        Err(err) => panic!(err)
+        Err(err) => panic!("proteomic::models::decoys::tests::modified_decoy::modified_decoy_insert at Modification.create(): {}", err)
     }
     let weight: i64 = base_decoy.get_weight() + modification.get_mono_mass();
     let modifications: Vec<Option<Modification>> = vec![Some(modification), None, None, None];
     let mut modified_decoy: ModifiedDecoy = ModifiedDecoy::new(&base_decoy, None, None, &modifications, weight);
     match modified_decoy.create(&conn) {
         Ok(_) => println!("ModifiedDecoy successfully created"),
-        Err(err) => panic!("ModifiedDecoy not created, original error {}", err)
+        Err(err) => panic!("proteomic::models::decoys::tests::modified_decoy::modified_decoy_insert at second ModifiedDecoy::create(): {}", err)
     }
     assert!(modified_decoy.get_primary_key() > 0);
     modified_decoy_count = match ModifiedDecoy::get_count(&conn) {
         Ok(count) => count,
-        Err(err) => panic!(err)
+        Err(err) => panic!("proteomic::models::decoys::tests::modified_decoy::modified_decoy_insert at second ModifiedDecoy::get_count(): {}", err)
     };
     assert_eq!(modified_decoy_count, 1);
 }

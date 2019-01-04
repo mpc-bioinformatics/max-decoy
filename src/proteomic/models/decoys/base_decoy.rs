@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use self::postgres::Connection;
 
 use proteomic::models::decoys::decoy::Decoy;
-use proteomic::models::persistable::Persistable;
+use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
 use proteomic::models::peptide::Peptide;
 use proteomic::models::mass;
 
@@ -79,7 +79,7 @@ impl Decoy for BaseDecoy {
 
 
 impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
-    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, FromSqlRowError> {
         return Ok(
             Self {
                 id: row.get(0),
@@ -96,62 +96,74 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
+    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, QueryError> {
         match conn.query("SELECT * FROM base_decoys WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
+                }
+            },
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, String> {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, QueryError> {
         let generalized_aa_sequence: String = Peptide::gerneralize_aa_sequence(unique_identifier);
-        match conn.query(
-            "SELECT * FROM base_decoys WHERE aa_sequence = $1 LIMIT 1",
-            &[&generalized_aa_sequence]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+        match conn.query("SELECT * FROM base_decoys WHERE aa_sequence = $1 LIMIT 1", &[&generalized_aa_sequence]) {
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
+                }
+            },
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
 
-    fn create(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         match conn.query(
             Self::get_insert_query(),
             &[&self.header, &self.aa_sequence, &self.weight, &self.length]
         ) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id =  rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Created);
             },
             Ok(_rows) => {
                 // zero rows means there are a conflict on update, so the decoys exists already
                 match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
                     Ok(decoy) => {
                         self.id = decoy.get_primary_key();
-                        return Ok(());
+                        return Ok(QueryOk::AlreadyExists);
                     },
-                    Err(err) => Err(format!("cannot insert nor find decoy '{}'\n\toriginal error: {}", self.aa_sequence, err))
+                    Err(err) => Err(err)
                 }
             }
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn update(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        if !self.is_persisted() {
+            return Err(QueryError::RecordIsNotPersisted);
+        }
         match conn.query(
             Self::get_update_query(),
             &[&self.id, &self.header, &self.aa_sequence, &self.weight, &self.length]
         ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn save(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if self.is_persisted() {
             return self.update(conn);
         } else {
@@ -159,23 +171,23 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
         }
     }
 
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if !self.is_persisted() {
-            return Err("BaseDecoy is not persisted".to_owned());
+            return Err(QueryError::RecordIsNotPersisted);
         }
         match conn.execute("DELETE FROM base_decoys WHERE id = $1;", &[&self.id]) {
             Ok(_) => {
                 self.id = 0;
-                return Ok(());
+                return Ok(QueryOk::Deleted);
             },
-            Err(err) => Err(format!("could not delete BaseDecoy from database; postgresql error is: {}", err))
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         match conn.execute("DELETE FROM base_decoys WHERE id IS NOT NULL;", &[]) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(format!("could not delete BaseDecoys from database; postgresql error is: {}", err))
+            Ok(_) => Ok(QueryOk::Deleted),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
@@ -196,33 +208,33 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
         return "UPDATE base_decoys SET header = $2, aa_sequence = $3, weight = $4, length = $5 WHERE id = $1";
     }
 
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.aa_sequence]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Selected);
             },
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.aa_sequence, &self.weight, &self.length]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Created);
             },
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.id, &self.aa_sequence, &self.weight, &self.length]) {
-            Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 

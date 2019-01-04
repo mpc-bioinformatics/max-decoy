@@ -4,9 +4,8 @@ use std::hash::{Hash, Hasher};
 
 use self::postgres::Connection;
 
-use proteomic::models::mass::neutral_loss::NeutralLoss;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
-use proteomic::models::persistable::Persistable;
+use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
 
 const WEIGHT_CONVERT_FACTOR: f64 = 1000000.0;
 
@@ -29,7 +28,7 @@ impl Peptide {
         return Peptide{
             id: 0,
             length: generalized_aa_sequence.len() as i32,
-            weight: Peptide::calculate_weight(&generalized_aa_sequence),
+            weight: AminoAcid::get_sequence_weight(&generalized_aa_sequence),
             aa_sequence: generalized_aa_sequence,
             digest_enzym: digest_enzym,
             number_of_missed_cleavages: number_of_missed_cleavages
@@ -48,14 +47,6 @@ impl Peptide {
         return aa_sequence.replace("I", "J").replace("L", "J");
     }
 
-    fn calculate_weight(aa_sequence: &String) -> i64 {
-        let mut weight: i64 = NeutralLoss::get("H2O").get_mono_mass();
-        for amino_acid_one_letter_code in aa_sequence.as_str().chars() {
-            weight += AminoAcid::get(amino_acid_one_letter_code).get_mono_mass();
-        }
-        return weight;
-    }
-
     pub fn get_weight(&self) -> f64 {
         return self.weight as f64 / WEIGHT_CONVERT_FACTOR;
     }
@@ -66,7 +57,7 @@ impl Peptide {
 }
 
 impl Persistable<Peptide, i64, String> for Peptide {
-    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, String> {
+    fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, FromSqlRowError> {
         return Ok(
             Self{
                 id: row.get(0),
@@ -83,62 +74,71 @@ impl Persistable<Peptide, i64, String> for Peptide {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, String> {
+    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, QueryError> {
         match conn.query("SELECT * FROM peptides WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
+                }
+            },
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, String> {
+    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, QueryError> {
         let generalized_aa_sequence: String = Self::gerneralize_aa_sequence(unique_identifier);
-        match conn.query(
-            "SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1",
-            &[&generalized_aa_sequence]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => Self::from_sql_row(&rows.get(0)),
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+        match conn.query("SELECT * FROM peptides WHERE aa_sequence = $1 LIMIT 1", &[&generalized_aa_sequence]) {
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
+                }
+            },
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
 
-    fn create(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         match conn.query(
             Self::get_insert_query(),
             &[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
         ) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id =  rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Created);
             },
             Ok(_rows) => {
                 // zero rows means there are a conflict on update, so the peptides exists already
                 match Self::find_by_unique_identifier(conn, &self.aa_sequence) {
                     Ok(peptide) => {
                         self.id = peptide.get_primary_key();
-                        return Ok(());
+                        return Ok(QueryOk::AlreadyExists);
                     },
-                    Err(err) => Err(format!("cannot insert nor find peptide '{}'\n\torigina error: {}", self.aa_sequence, err))
+                    Err(err) => Err(err)
                 }
             }
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn update(&mut self, conn: &postgres::Connection) -> Result<(), String> {
-        match conn.query(
-            Self::get_update_query(),
-            &[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        if !self.is_persisted() {
+            return Err(QueryError::RecordIsNotPersisted);
+        }
+        match conn.query(Self::get_update_query(), &[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn save(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if self.is_persisted() {
             return self.update(conn);
         } else {
@@ -146,23 +146,23 @@ impl Persistable<Peptide, i64, String> for Peptide {
         }
     }
 
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<(), String> {
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if !self.is_persisted() {
-            return Err("Peptide is not persisted".to_owned());
+            return Err(QueryError::RecordIsNotPersisted);
         }
         match conn.execute("DELETE FROM peptides WHERE id = $1;", &[&self.id]) {
             Ok(_) => {
                 self.id = 0;
-                return Ok(());
+                return Ok(QueryOk::Deleted);
             },
-            Err(err) => Err(format!("could not delete Peptide from database; postgresql error is: {}", err))
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn delete_all(conn: &postgres::Connection) -> Result<(), String> {
+    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         match conn.execute("DELETE FROM peptides WHERE id IS NOT NULL;", &[]) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(format!("could not delete Peptides from database; postgresql error is: {}", err))
+            Ok(_) => Ok(QueryOk::Deleted),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
@@ -183,33 +183,33 @@ impl Persistable<Peptide, i64, String> for Peptide {
         return "UPDATE peptides SET aa_sequence = $2, digest_enzym = $3, number_of_missed_cleavages = $4, weight = $5, length = $6 WHERE id = $1";
     }
 
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.aa_sequence]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Selected);
             },
-            Ok(_rows) => Err("NOHIT".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
-                return Ok(());
+                return Ok(QueryOk::Created);
             },
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<(), String> {
+    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
         match prepared_statement.query(&[&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]) {
-            Ok(ref rows) if rows.len() > 0 => Ok(()),
-            Ok(_rows) => Err("NORET".to_owned()),
-            Err(err) => Err(err.code().unwrap().code().to_owned())
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
