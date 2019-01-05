@@ -46,7 +46,7 @@ pub trait DigestEnzym {
             commited_peptide_protein_association_counter = 0;    // reset association  counter for this try
 
             let mut error_message: String = String::new();
-            let mut errors_occured = false;
+            let mut error_occured = false;
 
             // database transaction and statements
             let transaction = database_connection.transaction().unwrap();
@@ -69,8 +69,8 @@ pub trait DigestEnzym {
                         if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
                             let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_shortcut().to_owned(), number_of_missed_cleavages);
                             // reset error variables
-                            error_message = format!("ERRORs Peptide {}", peptide.get_aa_sequence());
-                            errors_occured = false;
+                            error_message = format!("Peptide [{}]", peptide.get_aa_sequence());
+                            error_occured = false;
                             match peptide.prepared_create(&peptide_create_statement, &peptide_exists_statement) {
                                 Ok(query_ok) => match query_ok {
                                     QueryOk::Created => commited_peptide_counter += 1,
@@ -78,9 +78,9 @@ pub trait DigestEnzym {
                                     _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in Peptide.prepared_create(), this panic should never be reached")
                                 },
                                 Err(err) => {
-                                    error_counter += 1;
-                                    errors_occured = true;
-                                    error_message.push_str(format!("\n\tprepared_create(): {}", err).as_str())
+                                    error_occured = true;
+                                    error_message.push_str(format!("\n\tPeptide.prepared_create(): {}", err).as_str());
+                                    break 'peptide_loop;
                                 }
                             }
                             processed_peptide_counter += 1;
@@ -93,9 +93,9 @@ pub trait DigestEnzym {
                                         _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in PeptideProteinAssociation.prepared_create(), this panic should never be reached")
                                     },
                                     Err(err) => {
-                                        errors_occured = true;
-                                        error_counter += 1;
-                                        error_message.push_str(format!("\n\tassociation with protein:\n\t\tprepared_create(): {}",err).as_str());
+                                        error_occured = true;
+                                        error_message.push_str(format!("\n\tPeptideProteinAssociation.prepared_create(): {}",err).as_str());
+                                        break 'peptide_loop;
                                     }                                     
                                 }
                                 processed_peptide_protein_association_counter += 1;
@@ -105,16 +105,15 @@ pub trait DigestEnzym {
                         break 'missed_cleavage_loop;
                     }
                 }
-                // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
             }
-            //println!("THREAD [{}]: error_counter => {}", protein.get_accession(), error_counter);
-            if errors_occured {
+            if error_occured {
+                error_counter += 1;
                 match error_counter {
                     // some errors occure, rollback, wait and try again later
                     1 | 2 => {
                         log.push_str(
                             format!(
-                                "WARNING => THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s):{}\n",
+                                "WARNING => THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s): {}\n",
                                 protein.get_accession(),
                                 error_counter,
                                 DIGEST_WAIT_DURATION_FOR_ERRORS.as_secs(),
