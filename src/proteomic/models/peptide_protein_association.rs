@@ -183,4 +183,24 @@ impl Persistable<PeptideProteinAssociation, (i64, i64), (i64, i64)> for PeptideP
     fn is_persisted(&self) -> bool {
         return (self.peptide_id > 0) & (self.protein_id > 0);
     }
+
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
+        unimplemented!()
+    }
+
+    fn exists_query() -> &'static str {
+        unimplemented!();
+    }
+
+    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
+        unimplemented!();
+    }
+
+    fn exists(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>{
+        unimplemented!();
+    }
+
+    fn exists_prepared(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError>{
+        unimplemented!();
+    }
 }

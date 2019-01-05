@@ -71,7 +71,7 @@ impl Modification {
             mono_mass
         )
     }
-
+    
     pub fn get_mono_mass(&self) -> i64 {
         return self.mono_mass;
     }
@@ -393,5 +393,17 @@ impl Persistable<Modification, i64, String> for Modification {
 
     fn is_persisted(&self) -> bool {
         return self.id < 1;
+    }
+
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
+        unimplemented!();
+    }
+
+    fn exists_query() -> &'static str {
+        unimplemented!();
+    }
+
+    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
+        unimplemented!();
     }
 }

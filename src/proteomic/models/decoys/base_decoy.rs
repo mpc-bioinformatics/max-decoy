@@ -242,6 +242,18 @@ impl Persistable<BaseDecoy, i64, String> for BaseDecoy {
     fn is_persisted(&self) -> bool {
         return self.id > 0;
     }
+
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
+        self.id = row.get(0);
+    }
+
+    fn exists_query() -> &'static str {
+        return "SELECT id FROM base_decoy WHERE aa_sequence = $1 LIMIT 1";
+    }
+
+    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
+        return Box::new(vec![&self.aa_sequence]);
+    }
 }
 
 

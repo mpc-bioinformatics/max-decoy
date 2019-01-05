@@ -1,6 +1,5 @@
 extern crate postgres;
 
-use std::string::ToString;
 use std::fmt;
 
 pub enum QueryOk {
@@ -8,6 +7,7 @@ pub enum QueryOk {
     Created,
     Updated,
     Deleted,
+    Exists,
     AlreadyExists
 }
 
@@ -99,7 +99,6 @@ pub trait Persistable<T, PK, UI> {
     fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
     fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
     fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
-
     fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<T>, QueryError> {
         let where_statement: String = format!("SELECT * FROM {} WHERE {};", Self::get_table_name(), conditions);
         match conn.query(where_statement.as_str(), values) {
@@ -117,6 +116,33 @@ pub trait Persistable<T, PK, UI> {
             Err(err) => Err(handle_postgres_error(&err))
         }
     }
+
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row);
+
+    fn exists_query() -> &'static str;
+    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
+    fn exists(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        match conn.query(Self::exists_query(), &self.exists_attributes()[..]) {
+            Ok(ref rows) if rows.len() > 0 => {
+                self.set_primary_key_from_sql_row(&rows.get(0));
+                return Ok(QueryOk::Exists);
+            },
+            Ok(_rows) => return Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    fn exists_prepared(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
+        match prepared_statement.query(&self.exists_attributes()[..]) {
+            Ok(ref rows) if rows.len() > 0 => {
+                self.set_primary_key_from_sql_row(&rows.get(0));
+                return Ok(QueryOk::Exists);
+            },
+            Ok(_rows) => return Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+
+
 
     fn get_table_name() -> &'static str;
     fn get_select_primary_key_by_unique_identifier_query() -> &'static str;
