@@ -17,35 +17,52 @@ use proteomic::utility::database_connection::DatabaseConnection;
 
 pub struct ModifiedDecoy {
     id: i64,                                        // SERIAL
-    base_decoy: BaseDecoy,                          // BIGINT REFERENCE
-    c_terminus_modification: Option<Modification>,  // BIGINT REFERENCE
-    n_terminus_modification: Option<Modification>,  // BIGINT REFERENCE
-    modifications: Vec<Option<Modification>>,       // INTEGER ARRAY
+    base_decoy_id: i64,                             // BIGINT REFERENCE
+    base_decoy: BaseDecoy,                          
+    c_terminus_modification: Option<Modification>,  
+    c_terminus_modification_id: i64,                // BIGINT REFERENCE
+    n_terminus_modification: Option<Modification>,
+    n_terminus_modification_id: i64,                // BIGINT REFERENCE
+    modifications: Vec<Option<Modification>>,
+    modification_ids: Array<i64>,                   // BIGINT ARRAY
     weight: i64                                     // BIGINT
 }
 
 impl ModifiedDecoy {
     pub fn new(base_decoy: &BaseDecoy, c_terminus_modification: Option<Modification>, n_terminus_modification: Option<Modification>, modifications: &Vec<Option<Modification>>, weight: i64) -> ModifiedDecoy {
+        let dummy_modification = Modification::get_dummy_modification();
         return Self {
             id: 0,
+            base_decoy_id: base_decoy.get_primary_key(),
             base_decoy: base_decoy.clone(),
+            c_terminus_modification_id: match &c_terminus_modification {
+                Some(modification) => modification.get_primary_key(),
+                None => dummy_modification.get_primary_key()
+            },
             c_terminus_modification: c_terminus_modification,
+            n_terminus_modification_id: match &n_terminus_modification { 
+                Some(modification) => modification.get_primary_key(),
+                None => dummy_modification.get_primary_key()
+            },
             n_terminus_modification: n_terminus_modification,
+            modification_ids: *Self::modifications_to_psql_array(modifications),
             modifications: modifications.clone(),
             weight: weight
         }
     }
+    
 
-    fn modifications_to_psql_array(&self) -> Box<Array<i64>> {
+
+    fn modifications_to_psql_array(modifications: &Vec<Option<Modification>>) -> Box<Array<i64>> {
         let dummy_modification = Modification::get_dummy_modification();
         let mut modification_ids: Vec<i64> = Vec::new();
-        for modification_option in self.modifications.iter() {
+        for modification_option in modifications.iter() {
             match modification_option {
                 Some(modification) => modification_ids.push(modification.get_primary_key()),
                 None => modification_ids.push(dummy_modification.get_primary_key())
             }
         }
-        return Box::new(Array::from_vec(modification_ids, self.base_decoy.get_length()));
+        return Box::new(Array::from_vec(modification_ids, modifications.len() as i32));
     }
 
 
@@ -93,6 +110,18 @@ impl ModifiedDecoy {
 
     pub fn get_n_terminus_modification(&self) -> &Option<Modification> {
         return &self.n_terminus_modification
+    }
+
+    fn get_c_terminus_modification_id(&self) -> &i64 {
+        return &self.c_terminus_modification_id;
+    }
+
+    fn get_n_terminus_modification_id(&self) -> &i64 {
+        return &self.n_terminus_modification_id;
+    }
+
+    fn get_modification_ids(&self) -> &Array<i64> {
+        return &self.modification_ids;
     }
 }
 
@@ -212,9 +241,13 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
         return Ok (
             Self {
                 id: row.get(0),
+                base_decoy_id: base_decoy.get_primary_key(),
                 base_decoy: base_decoy,
+                c_terminus_modification_id: c_terminus_modification_id,
                 c_terminus_modification: c_terminus_modification,
+                n_terminus_modification_id: n_terminus_modification_id,
                 n_terminus_modification: n_terminus_modification,
+                modification_ids: modification_ids,
                 modifications: modifications,
                 weight: row.get(5)
             }
@@ -258,35 +291,22 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
 
 
     fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        let dummy_modification = Modification::get_dummy_modification();
-        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let modification_ids_boxed = self.modifications_to_psql_array();
-        match conn.query(
-            Self::get_insert_query(),
-            &[&self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, modification_ids_boxed.as_ref(), &self.weight]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.id = rows.get(0).get(0);
-                return Ok(QueryOk::Created);
-            },
-            Ok(_rows) => {
-                // zero rows means there are a conflict on update, so the decoys exists already
-                match Self::find_by_unique_identifier(conn, &(self.base_decoy.get_primary_key(), c_terminus_modification_id, n_terminus_modification_id, modification_ids_boxed.as_ref(), self.weight)) {
-                    Ok(modified_decoy) => {
-                        self.id = modified_decoy.get_primary_key();
-                        return Ok(QueryOk::AlreadyExists);
+        match self.exists(&conn) {
+            Ok(_) => return Ok(QueryOk::AlreadyExists),
+            Err(err) => match err {
+                QueryError::NoMatch => match conn.query(
+                    Self::get_insert_query(),
+                    &[&self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]
+                ) {
+                    Ok(ref rows) if rows.len() > 0 => {
+                        self.id = rows.get(0).get(0);
+                        return Ok(QueryOk::Created);
                     },
-                    Err(err) => Err(err)
-                }
+                    Ok(_rows) => Err(QueryError::NoReturn),
+                    Err(err) => Err(handle_postgres_error(&err))
+                },
+                _ => Err(err)
             }
-            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 
@@ -294,19 +314,9 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
         if !self.is_persisted() {
             return Err(QueryError::RecordIsNotPersisted);
         }
-        let dummy_modification = Modification::get_dummy_modification();
-        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let modification_ids_boxed = self.modifications_to_psql_array();
         match conn.query(
             Self::get_update_query(),
-            &[&self.id, &self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, modification_ids_boxed.as_ref(), &self.weight]
+            &[&self.id, &self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]
         ) {
             Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
             Ok(_rows) => Err(QueryError::NoReturn),
@@ -360,16 +370,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
     }
 
     fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        let dummy_modification = Modification::get_dummy_modification();
-        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, self.modifications_to_psql_array().as_ref(), &self.weight]) {
+        match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
                 return Ok(QueryOk::Selected);
@@ -380,16 +381,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
     }
 
     fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        let dummy_modification = Modification::get_dummy_modification();
-        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, self.modifications_to_psql_array().as_ref(), &self.weight]) {
+        match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]) {
             Ok(ref rows) if rows.len() > 0 => {
                 self.id = rows.get(0).get(0);
                 return Ok(QueryOk::Created);
@@ -400,16 +392,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
     }
 
     fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        let dummy_modification = Modification::get_dummy_modification();
-        let c_terminus_modification_id: i64 = match &self.c_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        let n_terminus_modification_id: i64 = match &self.n_terminus_modification {
-            Some(modification) => modification.get_primary_key(),
-            None => dummy_modification.get_primary_key()
-        };
-        match prepared_statement.query(&[&self.id, &self.base_decoy.get_primary_key(), &c_terminus_modification_id, &n_terminus_modification_id, self.modifications_to_psql_array().as_ref(), &self.weight]) {
+        match prepared_statement.query(&[&self.id, &self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]) {
             Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
             Ok(_rows) => Err(QueryError::NoReturn),
             Err(err) => Err(handle_postgres_error(&err))
@@ -419,6 +402,18 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
 
     fn is_persisted(&self) -> bool {
         return self.id > 0;
+    }
+
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
+        self.id = row.get(0);
+    }
+
+    fn exists_query() -> &'static str {
+        return "SELECT id FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND n_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5;"
+    }
+
+    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
+        return Box::new(vec![&self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight])
     }
 }
 
@@ -446,11 +441,15 @@ impl Clone for ModifiedDecoy {
     fn clone(&self) -> Self {
         return Self{
             id: self.id,
+            base_decoy_id: self.base_decoy_id,
             base_decoy: self.base_decoy.clone(),
+            c_terminus_modification_id: self.c_terminus_modification_id,
             c_terminus_modification: self.c_terminus_modification.clone(),
+            n_terminus_modification_id: self.n_terminus_modification_id,
             n_terminus_modification: self.n_terminus_modification.clone(),
+            modification_ids: self.modification_ids.clone(),
             modifications: self.modifications.clone(),
-            weight: self.get_weight()
+            weight: self.get_weight(),
         }
     }
 }
