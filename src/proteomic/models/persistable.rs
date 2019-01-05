@@ -32,8 +32,8 @@ impl QueryError {
             QueryError::IOError(err) => format!("QueryError::IOError({})", err),
             QueryError::InnerError(err) => format!("QueryError::InnerError({})", err),
             QueryError::SQLError(err) => format!("QueryError::SqlError(error code: {})", err),
-            QueryError::NoMatch => format!("QueryError::NoReturn"),
-            QueryError::NoReturn => format!("QueryError::NoMatch"),
+            QueryError::NoMatch => format!("QueryError::NoMatch"),
+            QueryError::NoReturn => format!("QueryError::NoReturn"),
             QueryError::RecordIsNotPersisted => format!("QueryError::RecordNotPersisted")
         };
     }
