@@ -40,7 +40,15 @@ impl Peptide {
     }
 
     pub fn to_string(&self) -> String {
-        return format!("{}: {}\n\tdigested with => {}\n\tmissed_cleavages => {}\n\tweight => {}\n\tlength => {}", self.id, self.aa_sequence, self.digest_enzym, self.number_of_missed_cleavages, self.weight, self.length);
+        return format!(
+            "proteomic::models::peptide::Peptide\n\tid => {}\n\taa_sequence => {}\n\tdigest_enzym => {}\n\tlength => {}\n\tnumber_of_missed_cleavages => {}\n\tweight => {}",
+            self.id,
+            self.aa_sequence,
+            self.digest_enzym,
+            self.length,
+            self.number_of_missed_cleavages,
+            self.weight
+        );
     }
 
     pub fn gerneralize_aa_sequence(aa_sequence: &String) -> String {
