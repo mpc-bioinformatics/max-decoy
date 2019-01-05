@@ -2,6 +2,8 @@ extern crate clap;
 extern crate num_cpus;
 extern crate postgres;
 
+use std::collections::HashMap;
+
 use clap::{Arg, App, SubCommand};
 
 mod proteomic;
@@ -9,9 +11,7 @@ use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::enzyms::trypsin::Trypsin;
-use proteomic::models::persistable::Persistable;
-use proteomic::models::peptide::Peptide;
-use proteomic::models::protein::Protein;
+use proteomic::utility::decoy_generator::DecoyGenerator;
 
 use proteomic::models::amino_acids::modification::Modification;
 
@@ -171,10 +171,91 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         Some(modification_csv_file) => modification_csv_file.to_owned(),
         None => String::new()
     };
+    let max_modifications_per_decoy: i32 = match decoy_generation_cli_args.value_of("MAX_MODIFICATION_PER_DECOY") {
+        Some(number_string) => {
+            match number_string.to_owned().parse::<i32>() {
+                Ok(number) => number,
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast max-modification-per-decoy to integer")
+            }
+        },
+        None => 0
+    };
+    let number_of_decoys: usize = match decoy_generation_cli_args.value_of("NUMBER_OF_DECOYS") {
+        Some(number_string) => {
+            match number_string.to_owned().parse::<usize>() {
+                Ok(number) => number,
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast number-of-decoys to (unsigned) integer")
+            }
+        },
+        None => 1000
+    };
+    let lower_mass_tolerance: i64 = match decoy_generation_cli_args.value_of("LOWER_MASS_TOLERANCE") {
+        Some(number_string) => {
+            match number_string.to_owned().parse::<i64>() {
+                Ok(number) => number,
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast lower-mass-tolerance to integer")
+            }
+        },
+        None => 1000
+    };
+    let upper_mass_tolerance: i64 = match decoy_generation_cli_args.value_of("UPPER_MASS_TOLERANCE") {
+        Some(number_string) => {
+            match number_string.to_owned().parse::<i64>() {
+                Ok(number) => number,
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast upper-mass-tolerance to integer")
+            }
+        },
+        None => 1000
+    };
+    let weight: f64 = match decoy_generation_cli_args.value_of("WEIGHT") {
+        Some(number_string) => {
+            match number_string.to_owned().parse::<f64>() {
+                Ok(number) => number,
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast weight to integer")
+            }
+        },
+        None => panic!("you must provide a weight")
+    };
+    let cpu_thread_count: usize = num_cpus::get();
+    let thread_count: usize = match decoy_generation_cli_args.value_of("THREAD_COUNT") {
+        Some(count) => {
+            match count.to_lowercase().as_str() {
+                "max" => cpu_thread_count,
+                _ => match count.to_owned().parse::<usize>() {
+                    Ok(mut parsed_count) => {
+                        let cpu_thread_count: usize = num_cpus::get();
+                        if (1 > parsed_count) | (parsed_count > num_cpus::get()) {
+                            panic!("ERROR [decoy-generation]: threadcount must be between {} and {}.", 1, cpu_thread_count);
+                        }
+                        parsed_count
+                    } ,
+                    Err(_err) => {
+                        panic!("ERROR [decoy-generation]: cannot parse thread-count to (unsigned) integer");
+                    }
+                }
+            }
+        },
+        None => {
+            println!("WARNING [decoy-generation]: no thread-count , set it to 1.");
+            1
+        }
+    };
+    Modification::make_sure_dummy_modification_exists();
     let mods = Modification::create_from_csv_file(&modification_csv_file);
     for modification in mods.iter() {
         println!("{}", modification.to_string());
     }
+    let mut fixed_modifications_map: HashMap<char, Modification> = HashMap::new();
+    let mut variable_modifications_map: HashMap<char, Modification> = HashMap::new();
+    for modification in mods.iter() {
+        if modification.is_fix() {
+            fixed_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
+        } else {
+            variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
+        }
+    }
+    let generator: DecoyGenerator = DecoyGenerator::new(weight, upper_mass_tolerance, lower_mass_tolerance, number_of_decoys, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
+    generator.generate_decoys();
 }
 
 fn main() {
@@ -246,6 +327,53 @@ fn main() {
             .short("m")
             .long("modification-file")
             .value_name("INPUT_FILE")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("MAX_MODIFICATION_PER_DECOY")
+            .short("n")
+            .long("max-modification-per-decoy")
+            .value_name("MAX_MODIFICATION_PER_DECOY")
+            .takes_value(true)
+            .help("Integer, Default: 0")
+        )
+        .arg(
+            Arg::with_name("NUMBER_OF_DECOYS")
+            .short("d")
+            .long("number-of-decoys")
+            .value_name("NUMBER_OF_DECOYS")
+            .takes_value(true)
+            .help("Integer, Default: 1000")
+        )
+        .arg(
+            Arg::with_name("LOWER_MASS_TOLERANCE")
+            .short("l")
+            .long("lower-mass-tolerance")
+            .value_name("LOWER_MASS_TOLERANCE")
+            .takes_value(true)
+            .help("Integer, Unit: ppm, Default: 5")
+        )
+        .arg(
+            Arg::with_name("UPPER_MASS_TOLERANCE")
+            .short("u")
+            .long("upper-mass-tolerance")
+            .value_name("UPPER_MASS_TOLERANCE")
+            .takes_value(true)
+            .help("Integer, Unit: ppm, Default: 5")
+        )
+        .arg(
+            Arg::with_name("WEIGHT")
+            .short("w")
+            .long("upper-mass-tolerance")
+            .value_name("UPPER_MASS_TOLERANCE")
+            .takes_value(true)
+            .help("Float, Unit: Dalton")
+        )
+        .arg(
+            Arg::with_name("THREAD_COUNT")
+            .short("t")
+            .long("thread-count")
+            .value_name("THREAD_COUNT")
             .takes_value(true)
         )
     )
