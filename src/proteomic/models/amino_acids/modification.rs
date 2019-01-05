@@ -4,10 +4,8 @@ extern crate csv;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-use self::postgres::Connection;
-
 use proteomic::models::mass;
-use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
+use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, FromSqlRowError};
 use proteomic::utility::database_connection::DatabaseConnection;
 
 // it is very important that this dummy is in inserted into the databse first. 
@@ -28,13 +26,52 @@ pub enum ModificationPosition {
     CTerminus
 }
 
+impl ModificationPosition {
+    fn to_string(&self) -> String {
+        return match self {
+            ModificationPosition::Anywhere => "Anywhere".to_string(),
+            ModificationPosition::CTerminus => "C-Terminus".to_string(),
+            ModificationPosition::NTerminus => "N-Terminus".to_string()
+        }
+    }
+
+    // returns the ascii-decimal-code for the positions first char
+    fn as_small_int(&self) -> i16 {
+        return match self {
+            ModificationPosition::Anywhere => 65,
+            ModificationPosition::CTerminus => 67,
+            ModificationPosition::NTerminus => 78
+        }
+    }
+
+    // argument is positions first char as ascii-decimal-code
+    fn from_small_int(position_int: i16) -> ModificationPosition {
+        return match position_int {
+            65 => ModificationPosition::Anywhere,
+            67 => ModificationPosition::CTerminus,
+            78 => ModificationPosition::NTerminus,
+            _ => panic!("proteomic::models::amino_acids::modification::ModificationPosition::from_small_int(): Could not parse int16 to ModificationPosititon")
+        }
+    }
+
+    fn from_char(position_char: char) -> ModificationPosition {
+        return match position_char.to_ascii_uppercase() {
+            'A' => ModificationPosition::Anywhere,
+            'C' => ModificationPosition::CTerminus,
+            'N' => ModificationPosition::NTerminus,
+            _ => panic!("proteomic::models::amino_acids::modification::ModificationPosition::from_char(): Could not parse char to ModificationPosititon")
+        }
+    }
+}
+
 pub struct Modification {
     id: i64,                                // BIGSERIAL
     accession: String,                      // TEXT
     name: String,                           // VARCHAR(255)
-    position: ModificationPosition,         // SMALLINT
+    position_as_int: i16,                   // SMALLINT
+    position: ModificationPosition,         
     is_fix: bool,                           // BOOL                 
-    amino_acid_one_letter_code: char,       // CHAR(1)
+    amino_acid_one_letter_code: String,     // CHAR(1), must be handled as String, because char does not implemen postgres::types::ToSql, so we can not pass references to .query()
     mono_mass: i64                          // BIGINT
 }
 
@@ -44,9 +81,10 @@ impl Modification {
             id: 0,
             accession: accession.to_owned().to_lowercase().trim().to_string(),
             name: name.to_owned().trim().to_string(),
+            position_as_int: position.as_small_int(),
             position: position,
             is_fix: is_fix,
-            amino_acid_one_letter_code: amino_acid_one_letter_code.to_ascii_uppercase(),
+            amino_acid_one_letter_code: amino_acid_one_letter_code.to_ascii_uppercase().to_string(),
             mono_mass: mass::convert_mass_to_int(mono_mass),
         };
     }
@@ -65,7 +103,7 @@ impl Modification {
         return Self::new(
             &row[0],
             &row[1],
-            Self::position_from_char(position_char),
+            ModificationPosition::from_char(position_char),
             is_fix_int > 0,
             amino_acid_one_letter_code,
             mono_mass
@@ -93,7 +131,10 @@ impl Modification {
     }
 
     pub fn get_amino_acid_one_letter_code(&self) -> char {
-        return self.amino_acid_one_letter_code;
+        return match self.amino_acid_one_letter_code.chars().next() {
+            Some(one_letter_code) => one_letter_code,
+            None => '_'
+        };
     }
 
     pub fn to_string(&self) -> String {
@@ -102,47 +143,11 @@ impl Modification {
             self.id,
             self.accession,
             self.name,
-            Self::position_to_string(self.position),
+            self.position.to_string(),
             self.is_fix,
             self.amino_acid_one_letter_code,
             mass::convert_mass_to_float(self.mono_mass)
         );
-    }
-
-    // returns the ascii-decimal-code for the positions first char
-    fn position_to_int(position: ModificationPosition) -> i16 {
-        return match position {
-            ModificationPosition::Anywhere => 65,
-            ModificationPosition::CTerminus => 67,
-            ModificationPosition::NTerminus => 78
-        }
-    }
-
-    fn position_to_string(position: ModificationPosition) -> String {
-        return match position {
-            ModificationPosition::Anywhere => "Anywhere".to_string(),
-            ModificationPosition::CTerminus => "C-Terminus".to_string(),
-            ModificationPosition::NTerminus => "N-Terminus".to_string()
-        }
-    }
-
-    // argument is positions first char as ascii-decimal-code
-    fn position_from_int(position_int: i16) -> ModificationPosition {
-        return match position_int {
-            65 => ModificationPosition::Anywhere,
-            67 => ModificationPosition::CTerminus,
-            78 => ModificationPosition::NTerminus,
-            _ => panic!("Could not parse int to ModificationPosititon")
-        }
-    }
-
-    fn position_from_char(position_char: char) -> ModificationPosition {
-        return match position_char.to_ascii_uppercase() {
-            'A' => ModificationPosition::Anywhere,
-            'C' => ModificationPosition::CTerminus,
-            'N' => ModificationPosition::NTerminus,
-            _ => panic!("Could not parse int to ModificationPosititon")
-        }
     }
 
     pub fn create_from_csv_file(modification_csv_file_path: &str) -> Box<Vec<Modification>> {
@@ -168,9 +173,10 @@ impl Modification {
             id: DUMMY_MODIFICATION_VALUES.0,
             accession: DUMMY_MODIFICATION_VALUES.1.to_owned(),
             name: DUMMY_MODIFICATION_VALUES.2.to_owned(),
+            position_as_int: DUMMY_MODIFICATION_VALUES.3.as_small_int(),
             position: DUMMY_MODIFICATION_VALUES.3,
             is_fix: DUMMY_MODIFICATION_VALUES.4,
-            amino_acid_one_letter_code: DUMMY_MODIFICATION_VALUES.5,
+            amino_acid_one_letter_code: DUMMY_MODIFICATION_VALUES.5.to_string(),
             mono_mass: DUMMY_MODIFICATION_VALUES.6
         };
     }
@@ -186,7 +192,7 @@ impl Modification {
         };
         query = format!("INSERT INTO {} (id, accession, name, position, is_fix, amino_acid_one_letter_code, mono_mass) VALUES ($1, $2, $3, $4, $5, $6, $7)", Self::get_table_name());
         if !dummmy_modification_exists {
-            match conn.execute(query.as_str(), &[&dummy_modification.get_primary_key(), &dummy_modification.get_accession(), &dummy_modification.get_name(), &Self::position_to_int(dummy_modification.get_position()), &dummy_modification.is_fix(), &dummy_modification.get_amino_acid_one_letter_code().to_string(), &dummy_modification.get_mono_mass()]) {
+            match conn.execute(query.as_str(), &[&dummy_modification.get_primary_key(), &dummy_modification.get_accession(), &dummy_modification.get_name(), &dummy_modification.get_position().as_small_int(), &dummy_modification.is_fix(), &dummy_modification.get_amino_acid_one_letter_code().to_string(), &dummy_modification.get_mono_mass()]) {
                 Ok(_) => (),
                 Err(err) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: {}", handle_postgres_error(&err))
             }
@@ -200,9 +206,10 @@ impl Clone for Modification {
             id: self.id,
             accession: self.accession.clone(),
             name: self.name.clone(),
+            position_as_int: self.position_as_int,
             position: self.position.clone(),
             is_fix: self.is_fix,
-            amino_acid_one_letter_code: self.amino_acid_one_letter_code,
+            amino_acid_one_letter_code: self.amino_acid_one_letter_code.clone(),
             mono_mass: self.mono_mass
         };
     }
@@ -215,7 +222,7 @@ impl PartialEq for Modification {
        return (self.accession == other.get_accession())
         & (self.position == other.get_position())
         & (self.is_fix == other.is_fix())
-        & (self.amino_acid_one_letter_code == other.get_amino_acid_one_letter_code())
+        & (self.get_amino_acid_one_letter_code() == other.get_amino_acid_one_letter_code())
         & (self.mono_mass == other.get_mono_mass());
     }
 }
@@ -232,178 +239,80 @@ impl Hash for Modification {
 
 impl Persistable<Modification, i64, String> for Modification {
     fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, FromSqlRowError> {
+        let position_as_int: i16 = row.get(3);
         return Ok (
             Self {
                 id: row.get(0),
                 accession: row.get(1),
                 name: row.get(2),
-                position: Self::position_from_int(row.get::<usize, i16>(3)),
+                position_as_int: position_as_int,
+                position: ModificationPosition::from_small_int(position_as_int),
                 is_fix: row.get(4),
-                amino_acid_one_letter_code: (row.get::<usize, String>(5)).chars().next().unwrap(),
+                amino_acid_one_letter_code: row.get::<usize, String>(5),
                 mono_mass: row.get(6)
             }
         )
+    }
+
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
+        self.id = row.get(0);
+    }
+
+    fn invalidate_primary_key(&mut self) {
+        self.id = 0;
     }
 
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
 
-    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, QueryError> {
-        match conn.query("SELECT * FROM amino_acid_modifications WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
-                Ok(record) => Ok(record),
-                Err(err) => match err {
-                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
-                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
-                }
-            },
-            Ok(_rows) => Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &String) -> Result<Self, QueryError> {
-        match conn.query("SELECT * FROM amino_acid_modifications WHERE accession = $1 LIMIT 1", &[unique_identifier]) {
-            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
-                Ok(record) => Ok(record),
-                Err(err) => match err {
-                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
-                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
-                }
-            },
-            Ok(_rows) => Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-
-    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        match conn.query(
-            Self::get_insert_query(),
-            &[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.id =  rows.get(0).get(0);
-                return Ok(QueryOk::Created);
-            },
-            Ok(_rows) => {
-                // zero rows means there are a conflict on insert, so the modification exists already
-                match Self::find_by_unique_identifier(conn, &self.accession) {
-                    Ok(modification) => {
-                        self.id = modification.get_primary_key();
-                        return Ok(QueryOk::AlreadyExists);
-                    },
-                    Err(err) => Err(err)
-                }
-            }
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        if !self.is_persisted() {
-            return Err(QueryError::RecordIsNotPersisted);
-        }
-        match conn.query(
-            Self::get_update_query(),
-            &[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
-            Ok(_rows) => Err(QueryError::NoReturn),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        if self.is_persisted() {
-            return self.update(conn);
-        } else {
-            return self.create(conn);
-        }
-    }
-
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        if !self.is_persisted() {
-            return Err(QueryError::RecordIsNotPersisted);
-        }
-        match conn.execute("DELETE FROM amino_acid_modifications WHERE id = $1;", &[&self.id]) {
-            Ok(_) => {
-                self.id = 0;
-                return Ok(QueryOk::Deleted);
-            },
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        match conn.execute("DELETE FROM amino_acid_modifications WHERE id IS NOT NULL;", &[]) {
-            Ok(_) => Ok(QueryOk::Deleted),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-
     fn get_table_name() -> &'static str {
         return "amino_acid_modifications";
     }
-
-    fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
-        return "SELECT id FROM amino_acid_modifications WHERE accession = $1 LIMIT 1";
-    }
-
-    fn get_insert_query() -> &'static str {
-        return "INSERT INTO amino_acid_modifications (accession, name, position, is_fix, amino_acid_one_letter_code, mono_mass) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (accession) DO NOTHING RETURNING id";
-    }
-
-    fn get_update_query() -> &'static str {
-        return "UPDATE amino_acid_modifications SET accession = $2, name = $3, position = $4, is_fix = $5, amino_acid_one_letter_code = $6, mono_mass = $7 WHERE id = $1";
-    }
-
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&[&self.accession]) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.id = rows.get(0).get(0);
-                return Ok(QueryOk::Selected);
-            },
-            Ok(_rows) => Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.id = rows.get(0).get(0);
-                return Ok(QueryOk::Created);
-            },
-            Ok(_rows) => Err(QueryError::NoReturn),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&[&self.accession, &self.name, &Self::position_to_int(self.position), &self.is_fix, &self.amino_acid_one_letter_code.to_string(), &self.mono_mass]) {
-            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
-            Ok(_rows) => Err(QueryError::NoReturn),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
 
     fn is_persisted(&self) -> bool {
         return self.id < 1;
     }
 
-    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
-        unimplemented!();
+    fn find_query() -> &'static str {
+        return "SELECT * FROM amino_acid_modifications WHERE id = $1 LIMIT 1;";
+    }
+
+    fn create_query() -> &'static str {
+        return "INSERT INTO amino_acid_modifications (accession, name, position, is_fix, amino_acid_one_letter_code, mono_mass) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (accession) DO NOTHING RETURNING id;";
+    }
+
+    fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
+        return Box::new(vec![&self.accession, &self.name, &self.position_as_int, &self.is_fix, &self.amino_acid_one_letter_code, &self.mono_mass]);
+    }
+
+    fn update_query() -> &'static str{
+        return "UPDATE amino_acid_modifications SET accession = $2, name = $3, position = $4, is_fix = $5, amino_acid_one_letter_code = $6, mono_mass = $7 WHERE id = $1;";
+    }
+
+    fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
+        return Box::new(vec![&self.id, &self.accession, &self.name, &self.position_as_int, &self.is_fix, &self.amino_acid_one_letter_code, &self.mono_mass])
+    }
+
+    fn delete_query() -> &'static str {
+        return "DELETE FROM amino_acid_modifications WHERE id = $1;";
+    }
+
+    fn delete_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
+        return Box::new(vec![&self.id]);
+    }
+
+    fn delete_all_query() -> &'static str {
+        return "DELETE FROM amino_acid_modifications WHERE id IS NOT NULL;";
     }
 
     fn exists_query() -> &'static str {
-        unimplemented!();
+        return "SELECT id FROM amino_acid_modifications WHERE accession = $1 LIMIT 1;";
     }
 
     fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
-        unimplemented!();
+        return Box::new(vec![&self.accession]);
     }
+
+    fn before_delete_hook(&self) -> Result<(), QueryError> {return Ok(());}
 }

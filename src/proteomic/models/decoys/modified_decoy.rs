@@ -197,7 +197,7 @@ impl Decoy for ModifiedDecoy {
 impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for ModifiedDecoy {
     fn from_sql_row(row: &postgres::rows::Row) -> Result<Self, FromSqlRowError> {
         let conn = DatabaseConnection::get_database_connection();
-        let base_decoy: BaseDecoy = match BaseDecoy::find(&conn, &row.get::<usize, i64>(1)) {
+        let base_decoy: BaseDecoy = match BaseDecoy::find(&conn, &[&row.get::<usize, i64>(1)]) {
             Ok(base_decoy) => base_decoy,
             Err(query_error) => match query_error {
                 QueryError::NoMatch => return Err(FromSqlRowError::AssociatedRecordNotFound(format!("BaseDecoy(id: {})", row.get::<usize, i64>(1)))),
@@ -212,7 +212,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
 
         let mut c_terminus_modification: Option<Modification> = None;
         if c_terminus_modification_id != dummy_modification.get_primary_key() {
-            match Modification::find(&conn, &c_terminus_modification_id) {
+            match Modification::find(&conn, &[&c_terminus_modification_id]) {
                 Ok(modification) => c_terminus_modification = Some(modification),
                 Err(error) => match error {
                     QueryError::NoMatch => return Err(FromSqlRowError::AssociatedRecordNotFound(format!("CTerminusModification(id: {})", c_terminus_modification_id))),
@@ -223,7 +223,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
             
         let mut n_terminus_modification: Option<Modification> = None;
         if n_terminus_modification_id != dummy_modification.get_primary_key() {
-            match Modification::find(&conn, &n_terminus_modification_id) {
+            match Modification::find(&conn, &[&n_terminus_modification_id]) {
                 Ok(modification) => n_terminus_modification = Some(modification),
                 Err(error) => match error {
                     QueryError::NoMatch => return Err(FromSqlRowError::AssociatedRecordNotFound(format!("NTerminusModification(id: {})", n_terminus_modification_id))),
@@ -254,158 +254,58 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
         );
     }
 
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
+        self.id = row.get(0);
+    }
+
+    fn invalidate_primary_key(&mut self) {
+        self.id = 0;
+    }
+
     fn get_primary_key(&self) -> i64 {
         return self.id;
     }
-
-    fn find(conn: &Connection, primary_key: &i64) -> Result<Self, QueryError> {
-        match conn.query("SELECT * FROM modified_decoys WHERE id = $1 LIMIT 1", &[primary_key]) {
-            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
-                Ok(record) => Ok(record),
-                Err(err) => match err {
-                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
-                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
-                }
-            },
-            Ok(_rows) => Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn find_by_unique_identifier(conn: &Connection, unique_identifier: &(i64, i64, i64, &Array<i64>, i64)) -> Result<Self, QueryError> {
-        match conn.query(
-            "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1",
-            &[&unique_identifier.0, &unique_identifier.1, &unique_identifier.2, &unique_identifier.3, &unique_identifier.4]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
-                Ok(record) => Ok(record),
-                Err(err) => match err {
-                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
-                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
-                }
-            },
-            Ok(_rows) => Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-
-    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        match self.exists(&conn) {
-            Ok(_) => return Ok(QueryOk::AlreadyExists),
-            Err(err) => match err {
-                QueryError::NoMatch => match conn.query(
-                    Self::get_insert_query(),
-                    &[&self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]
-                ) {
-                    Ok(ref rows) if rows.len() > 0 => {
-                        self.id = rows.get(0).get(0);
-                        return Ok(QueryOk::Created);
-                    },
-                    Ok(_rows) => Err(QueryError::NoReturn),
-                    Err(err) => Err(handle_postgres_error(&err))
-                },
-                _ => Err(err)
-            }
-        }
-    }
-
-    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        if !self.is_persisted() {
-            return Err(QueryError::RecordIsNotPersisted);
-        }
-        match conn.query(
-            Self::get_update_query(),
-            &[&self.id, &self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]
-        ) {
-            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
-            Ok(_rows) => Err(QueryError::NoReturn),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        if self.is_persisted() {
-            return self.update(conn);
-        } else {
-            return self.create(conn);
-        }
-    }
-
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        if !self.is_persisted() {
-            return Err(QueryError::RecordIsNotPersisted);
-        }
-        match conn.execute("DELETE FROM modified_decoys WHERE id = $1;", &[&self.id]) {
-            Ok(_) => {
-                self.id = 0;
-                return Ok(QueryOk::Deleted);
-            },
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        match conn.execute("DELETE FROM modified_decoys WHERE id IS NOT NULL;", &[]) {
-            Ok(_) => Ok(QueryOk::Deleted),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
 
     fn get_table_name() -> &'static str {
         return "modified_decoys";
     }
 
-    fn get_select_primary_key_by_unique_identifier_query() -> &'static str {
-        return "SELECT * FROM modified_decoys WHERE base_decoy_id = $1 AND c_terminus_modification_id = $2 AND c_terminus_modification_id = $3 AND modification_ids = $4 AND weight = $5 LIMIT 1";
-    }
-
-    fn get_insert_query() -> &'static str {
-        return "INSERT INTO modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) DO NOTHING RETURNING id";
-    }
-
-    fn get_update_query() -> &'static str {
-        return "UPDATE modified_decoys SET base_decoy_id = $2, c_terminus_modification_id = $3, n_terminus_modification_id = $4, modification_ids = $5, weight = $6 WHERE id = $1";
-    }
-
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.id = rows.get(0).get(0);
-                return Ok(QueryOk::Selected);
-            },
-            Ok(_rows) => Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&[&self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.id = rows.get(0).get(0);
-                return Ok(QueryOk::Created);
-            },
-            Ok(_rows) => Err(QueryError::NoReturn),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&[&self.id, &self.base_decoy.get_primary_key(), &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]) {
-            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
-            Ok(_rows) => Err(QueryError::NoReturn),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-
     fn is_persisted(&self) -> bool {
         return self.id > 0;
     }
 
-    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row) {
-        self.id = row.get(0);
+
+    fn find_query() -> &'static str {
+        return "SELECT * FROM modified_decoys WHERE id = $1 LIMIT 1;";
+    }
+
+
+    fn create_query() -> &'static str {
+        return "INSERT INTO modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) DO NOTHING RETURNING id;";
+    }
+
+    fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
+        return Box::new(vec![&self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]);
+    }
+
+    fn update_query() -> &'static str{
+        return "UPDATE modified_decoys SET base_decoy_id = $2, c_terminus_modification_id = $3, n_terminus_modification_id = $4, modification_ids = $5, weight = $6 WHERE id = $1;";
+    }
+
+    fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
+        return Box::new(vec![&self.id, &self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]);
+    }
+
+    fn delete_query() -> &'static str {
+        return "DELETE FROM modified_decoys WHERE id = $1;";
+    }
+
+    fn delete_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
+        return Box::new(vec![&self.id]);
+    }
+
+    fn delete_all_query() -> &'static str {
+        return "DELETE FROM modified_decoys WHERE id IS NOT NULL;";
     }
 
     fn exists_query() -> &'static str {
@@ -415,6 +315,8 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
     fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>> {
         return Box::new(vec![&self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight])
     }
+
+    fn before_delete_hook(&self) -> Result<(), QueryError> {return Ok(());}
 }
 
 // PartialEq-implementation to use this type in a HashSet

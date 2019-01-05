@@ -51,11 +51,11 @@ pub trait DigestEnzym {
             // database transaction and statements
             let transaction = database_connection.transaction().unwrap();
 
-            let peptide_insert_statement = transaction.prepare_cached(Peptide::get_insert_query()).unwrap();
-            let peptide_select_by_unique_identifier_statement = transaction.prepare_cached(Peptide::get_select_primary_key_by_unique_identifier_query()).unwrap();
+            let peptide_create_statement = transaction.prepare_cached(Peptide::create_query()).unwrap();
+            let peptide_exists_statement = transaction.prepare_cached(Peptide::exists_query()).unwrap();
 
-            let peptide_protein_association_insert_statement = transaction.prepare_cached(PeptideProteinAssociation::get_insert_query()).unwrap();
-            let peptide_protein_association_select_by_unique_identifier_statement = transaction.prepare_cached(PeptideProteinAssociation::get_select_primary_key_by_unique_identifier_query()).unwrap();
+            let pp_association_create_statement = transaction.prepare_cached(PeptideProteinAssociation::create_query()).unwrap();
+            let pp_association_exists_statement = transaction.prepare_cached(PeptideProteinAssociation::exists_query()).unwrap();
             ////
 
             // let mut peptide_position: usize = 0;
@@ -67,72 +67,38 @@ pub trait DigestEnzym {
                     if temp_idx < peptides_without_missed_cleavages.len() {
                         new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                         if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                            processed_peptide_counter += 1;
                             let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_shortcut().to_owned(), number_of_missed_cleavages);
                             // reset error variables
                             error_message = format!("ERRORs Peptide {}", peptide.get_aa_sequence());
                             errors_occured = false;
-                            match peptide.exec_insert_statement(&peptide_insert_statement) {
+                            match peptide.prepared_create(&peptide_create_statement, &peptide_exists_statement) {
                                 Ok(query_ok) => match query_ok {
                                     QueryOk::Created => commited_peptide_counter += 1,
-                                    _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created used in Peptide.exec_insert_statement(), this panic should never be reached")
+                                    QueryOk::AlreadyExists => (),
+                                    _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in Peptide.prepared_create(), this panic should never be reached")
                                 },
-                                Err(insert_err) => match insert_err {
-                                    // no return means the peptide already exists
-                                     QueryError::NoReturn => {
-                                        match peptide.exec_select_primary_key_by_unique_identifier_statement(&peptide_select_by_unique_identifier_statement) {
-                                            Ok(query_ok) => match query_ok {
-                                                QueryOk::Selected => (),
-                                                _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Selected used in Peptide.exec_select_primary_key_by_unique_identifier_statement(), this panic should never be reached")
-                                            },
-                                            // ok, error at this point means the peptides could not be inserted nor selected. this is absolutely an error
-                                            Err(select_err) => {
-                                                error_counter += 1;
-                                                error_message.push_str(format!("\n\tinsert: {}\n\tselect: {}", insert_err, select_err).as_str());
-                                                errors_occured = true;
-                                                break 'peptide_loop;
-                                            }
-                                        }
-                                    },
-                                    // anything else than QueryError::NoReturn is really bad
-                                    _ => {
-                                        error_message.push_str(format!("\n\tinsert: {}", insert_err).as_str());
-                                        errors_occured = true;
-                                        error_counter += 1;
-                                        break 'peptide_loop;
-                                    }
+                                Err(err) => {
+                                    error_counter += 1;
+                                    errors_occured = true;
+                                    error_message.push_str(format!("\n\tprepared_create(): {}", err).as_str())
                                 }
                             }
+                            processed_peptide_counter += 1;
                             if peptide.is_persisted() {
-                                processed_peptide_protein_association_counter += 1;
                                 let mut association = PeptideProteinAssociation::new(&peptide, &protein);
-                                match association.exec_insert_statement(&peptide_protein_association_select_by_unique_identifier_statement) {
+                                match association.prepared_create(&pp_association_create_statement, &pp_association_exists_statement) {
                                     Ok(query_ok) => match query_ok {
                                         QueryOk::Created => commited_peptide_protein_association_counter += 1,
-                                        _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created used in PeptideProteinAssociation.exec_insert_statement(), this panic should never be reached")
-                                        
-                                    }
-                                    Err(insert_err) => match insert_err {
-                                        QueryError::NoReturn => match association.exec_select_primary_key_by_unique_identifier_statement(&peptide_protein_association_insert_statement){
-                                            Ok(query_ok) => match query_ok {
-                                                QueryOk::Selected => (),
-                                                _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Selected used in PeptideProteinAssociation.exec_select_primary_key_by_unique_identifier_statement(), this panic should never be reached")
-                                            },
-                                            Err(select_err) =>{
-                                                error_message.push_str(format!("\n\tassociation with protein:\n\t\tselect: {}\t\n\ninsert: {}",select_err, insert_err).as_str());
-                                                errors_occured = true;
-                                                error_counter += 1;
-                                            }
-                                        }
-                                        // anything else than QueryError::NoReturn is really bad
-                                        _ => {
-                                            error_message.push_str(format!("\n\tassociation with protein:\n\t\tinsert: {}", insert_err).as_str());
-                                            errors_occured = true;
-                                            error_counter += 1;
-                                            break 'peptide_loop;
-                                        }
+                                        QueryOk::AlreadyExists => (),
+                                        _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in PeptideProteinAssociation.prepared_create(), this panic should never be reached")
+                                    },
+                                    Err(err) => {
+                                        errors_occured = true;
+                                        error_counter += 1;
+                                        error_message.push_str(format!("\n\tassociation with protein:\n\t\tprepared_create(): {}",err).as_str());
                                     }                                     
                                 }
+                                processed_peptide_protein_association_counter += 1;
                             }
                         }
                     } else {
@@ -142,7 +108,7 @@ pub trait DigestEnzym {
                 // peptide_position += peptides_without_missed_cleavages[peptide_idx].len();
             }
             //println!("THREAD [{}]: error_counter => {}", protein.get_accession(), error_counter);
-            if !error_message.is_empty() {
+            if errors_occured {
                 match error_counter {
                     // some errors occure, rollback, wait and try again later
                     1 | 2 => {

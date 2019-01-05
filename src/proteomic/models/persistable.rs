@@ -90,18 +90,159 @@ pub fn handle_postgres_error(error: &postgres::Error) -> QueryError {
 // PK is the type of the primary key
 // UI is the type of the unique identifier
 pub trait Persistable<T, PK, UI> {
+    ////// utilities
     fn from_sql_row(row: &postgres::rows::Row) -> Result<T, FromSqlRowError>;
+    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row);
+    fn invalidate_primary_key(&mut self);
     fn get_primary_key(&self) -> PK;
-    fn find(conn: &postgres::Connection, primary_key: &PK) -> Result<T, QueryError>;
-    fn find_by_unique_identifier(conn: &postgres::Connection, unique_identifier: &UI) -> Result<T, QueryError>;
-    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
-    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
-    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
-    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
-    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError>;
+    fn get_table_name() -> &'static str;
+    fn is_persisted(&self) -> bool;
+    /////
+
+    /////// queries
+    /// find-query
+    fn find_query() -> &'static str;
+    fn find(conn: &postgres::Connection, primary_key: &[&postgres::types::ToSql]) -> Result<T, QueryError> {
+        match conn.query(Self::find_query(), primary_key) {
+            Ok(ref rows) if rows.len() > 0 => match Self::from_sql_row(&rows.get(0)) {
+                Ok(record) => Ok(record),
+                Err(err) => match err {
+                    FromSqlRowError::InnerQueryError(from_sql_err) => Err(from_sql_err),
+                    FromSqlRowError::AssociatedRecordNotFound(from_sql_err) => Err(QueryError::AssociatedRecordNotFound(from_sql_err.to_string()))
+                }
+            },
+            Ok(_rows) => Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    ///
+    
+    /// create-query
+    fn create_query() -> &'static str;
+    fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
+    fn create(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        match self.exists(&conn) {
+            Ok(_) => return Ok(QueryOk::AlreadyExists),
+            Err(err) => match err {
+                QueryError::NoMatch => match conn.query( Self::create_query(), self.create_attributes().as_slice()) {
+                    Ok(ref rows) if rows.len() > 0 => {
+                        self.set_primary_key_from_sql_row(&rows.get(0));
+                        return Ok(QueryOk::Created);
+                    },
+                    Ok(_rows) => Err(QueryError::NoReturn),
+                    Err(err) => Err(handle_postgres_error(&err))
+                },
+                _ => Err(err)
+            }
+        }
+    }
+    fn prepared_create(&mut self, create_statement: &postgres::stmt::Statement, exists_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
+        match self.prepared_exists(exists_statement) {
+            Ok(_) => return Ok(QueryOk::AlreadyExists),
+            Err(err) => match err {
+                QueryError::NoMatch => match create_statement.query(self.create_attributes().as_slice()) {
+                    Ok(ref rows) if rows.len() > 0 => {
+                        self.set_primary_key_from_sql_row(&rows.get(0));
+                        return Ok(QueryOk::Created);
+                    },
+                    Ok(_rows) => Err(QueryError::NoReturn),
+                    Err(err) => Err(handle_postgres_error(&err))
+                },
+                _ => Err(err)
+            }
+        }
+    }
+    ///
+    
+    /// update
+    fn update_query() -> &'static str;
+    fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
+    fn update(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError>{
+        if !self.is_persisted() {
+            return Err(QueryError::RecordIsNotPersisted);
+        }
+        match conn.query(Self::update_query(), self.update_attributes().as_slice()) {
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    fn prepared_update(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
+        match prepared_statement.query(self.update_attributes().as_slice()) {
+            Ok(ref rows) if rows.len() > 0 => Ok(QueryOk::Updated),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    ///
+    
+    
+    /// delete
+    fn delete_query() -> &'static str;
+    fn delete_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
+    fn delete(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        if !self.is_persisted() {
+            return Err(QueryError::RecordIsNotPersisted);
+        }
+        match conn.execute(Self::delete_query(), self.delete_attributes().as_slice()) {
+            Ok(_) => {
+                self.invalidate_primary_key();
+                return Ok(QueryOk::Deleted);
+            },
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    ///
+
+    /// delete_all
+    fn delete_all_query() -> &'static str;
+    fn delete_all(conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        match conn.execute(Self::delete_all_query(), &[]) {
+            Ok(_) => Ok(QueryOk::Deleted),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    ///
+    
+    /// delete where
+    fn delete_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<QueryOk, QueryError> {
+        let delete_query: String = format!("DELETE FROM {} WHERE {};", Self::get_table_name(), conditions);
+        match conn.execute(delete_query.as_str(), values) {
+            Ok(_) => Ok(QueryOk::Deleted),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    /// 
+ 
+    /// exists-query
+    fn exists_query() -> &'static str;
+    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
+    fn exists(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        match conn.query(Self::exists_query(), self.exists_attributes().as_slice()) {
+            Ok(ref rows) if rows.len() > 0 => {
+                self.set_primary_key_from_sql_row(&rows.get(0));
+                return Ok(QueryOk::Exists);
+            },
+            Ok(_rows) => return Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    fn prepared_exists(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
+        match prepared_statement.query(self.exists_attributes().as_slice()) {
+            Ok(ref rows) if rows.len() > 0 => {
+                self.set_primary_key_from_sql_row(&rows.get(0));
+                return Ok(QueryOk::Exists);
+            },
+            Ok(_rows) => return Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
+    ///
+    
+    /// select 
     fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<T>, QueryError> {
-        let where_statement: String = format!("SELECT * FROM {} WHERE {};", Self::get_table_name(), conditions);
-        match conn.query(where_statement.as_str(), values) {
+        let select_query: String = format!("SELECT * FROM {} WHERE {};", Self::get_table_name(), conditions);
+        match conn.query(select_query.as_str(), values) {
             Ok(ref rows) => {
                 let mut records: Vec<T> = Vec::new();
                 for row in rows {
@@ -116,51 +257,32 @@ pub trait Persistable<T, PK, UI> {
             Err(err) => Err(handle_postgres_error(&err))
         }
     }
-
-    fn set_primary_key_from_sql_row(&mut self, row: &postgres::rows::Row);
-
-    fn exists_query() -> &'static str;
-    fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
-    fn exists(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
-        match conn.query(Self::exists_query(), &self.exists_attributes()[..]) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.set_primary_key_from_sql_row(&rows.get(0));
-                return Ok(QueryOk::Exists);
-            },
-            Ok(_rows) => return Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
+    ///
+    
+    /// save
+    fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
+        if self.is_persisted() {
+            return self.update(conn);
+        } else {
+            return self.create(conn);
         }
     }
-    fn exists_prepared(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError> {
-        match prepared_statement.query(&self.exists_attributes()[..]) {
-            Ok(ref rows) if rows.len() > 0 => {
-                self.set_primary_key_from_sql_row(&rows.get(0));
-                return Ok(QueryOk::Exists);
-            },
-            Ok(_rows) => return Err(QueryError::NoMatch),
-            Err(err) => Err(handle_postgres_error(&err))
-        }
-    }
-
-
-
-    fn get_table_name() -> &'static str;
-    fn get_select_primary_key_by_unique_identifier_query() -> &'static str;
-    fn get_insert_query() -> &'static str;
-    fn get_update_query() -> &'static str;
-
-    fn exec_select_primary_key_by_unique_identifier_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError>;
-    fn exec_insert_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError>;
-    fn exec_update_statement(&mut self, prepared_statement: &postgres::stmt::Statement) -> Result<QueryOk, QueryError>;
-
-    fn is_persisted(&self) -> bool;
-
+    /// 
+    
+    /// count 
     fn get_count(conn: &postgres::Connection) -> Result<i64, QueryError> {
         let query: String = format!("SELECT cast(count(id) AS BIGINT) FROM {};", Self::get_table_name());
         return match conn.query(query.as_str(), &[]) {
             Ok(ref rows) if rows.len() > 0 => Ok(rows.get(0).get::<usize, i64>(0)),
-            Ok(_rows) => Err(QueryError::NoReturn),        // this case can not happen, except count is successfull but does not return something. code only exists to make the compiler happy
+            Ok(_rows) => Err(QueryError::NoReturn),
             Err(err) => Err(handle_postgres_error(&err))
         };
     }
+    ///
+    //////
+    
+    ////// hooks
+    /// 
+    fn before_delete_hook(&self) -> Result<(), QueryError>;
+    //
 }
