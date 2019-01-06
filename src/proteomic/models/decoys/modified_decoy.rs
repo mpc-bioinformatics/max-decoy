@@ -8,7 +8,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use self::postgres::Connection;
 use self::postgres_array::Array;
 
-use proteomic::models::decoys::decoy::Decoy;
+use proteomic::models::decoys::decoy::{Decoy, PreparedDecoy};
 use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
 use proteomic::models::amino_acids::modification::Modification;
@@ -25,12 +25,14 @@ pub struct ModifiedDecoy {
     n_terminus_modification_id: i64,                // BIGINT REFERENCE
     modifications: Vec<Option<Modification>>,
     modification_ids: Array<i64>,                   // BIGINT ARRAY
-    weight: i64                                     // BIGINT
+    weight: i64,                                    // BIGINT
+    header_addition: String                         // TEXT
 }
 
 impl ModifiedDecoy {
     pub fn new(base_decoy: &BaseDecoy, c_terminus_modification: Option<Modification>, n_terminus_modification: Option<Modification>, modifications: &Vec<Option<Modification>>, weight: i64) -> ModifiedDecoy {
         let dummy_modification = Modification::get_dummy_modification();
+        let header_addition = Self::create_header_addition(&c_terminus_modification, &n_terminus_modification, modifications);
         return Self {
             id: 0,
             base_decoy_id: base_decoy.get_primary_key(),
@@ -47,11 +49,61 @@ impl ModifiedDecoy {
             n_terminus_modification: n_terminus_modification,
             modification_ids: *Self::modifications_to_psql_array(modifications),
             modifications: modifications.clone(),
-            weight: weight
+            weight: weight,
+            header_addition: header_addition
         }
     }
-    
 
+    fn create_header_addition(c_terminus_modification: &Option<Modification>, n_terminus_modification: &Option<Modification>, modifications: &Vec<Option<Modification>>) -> String {
+    // create a HashMap with key "mod_accession|mod_name" and value Vec<String> which contains the positions of the modification
+        let mut accession_header_position_map: HashMap<String, Vec<String>> = HashMap::new();
+        for idx in 0..(modifications.len()) {
+            match &modifications[idx] {
+                Some(modification) => {
+                    let peff_notification_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                    let positions = match accession_header_position_map.entry(peff_notification_of_accession_and_name) {
+                        Vacant(entry) => entry.insert(Vec::new()),
+                        Occupied(entry) => entry.into_mut(),
+                    };
+                    positions.push(idx.to_string());
+                },
+                None => ()
+            }
+        }
+        match c_terminus_modification {
+            Some(modification) => {
+                let peff_notification_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                let positions = match accession_header_position_map.entry(peff_notification_of_accession_and_name) {
+                    Vacant(entry) => entry.insert(Vec::new()),
+                    Occupied(entry) => entry.into_mut(),
+                };
+                positions.push("c-terminus".to_string());
+            },
+            None => ()
+        }
+        match n_terminus_modification {
+            Some(modification) => {
+                let peff_notification_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                let positions = match accession_header_position_map.entry(peff_notification_of_accession_and_name) {
+                    Vacant(entry) => entry.insert(Vec::new()),
+                    Occupied(entry) => entry.into_mut(),
+                };
+                positions.push("n-terminus".to_string());
+            },
+            None => ()
+        }
+        let mut mod_res: String = String::new();
+        for (accession_and_header, positions) in &accession_header_position_map {
+            mod_res.push_str(
+                format!(
+                    "({}|{})",
+                    positions.join(","),
+                    accession_and_header
+                ).as_str()
+            );
+        }
+        return format!("ModRes={}", mod_res);
+    }
 
     fn modifications_to_psql_array(modifications: &Vec<Option<Modification>>) -> Box<Array<i64>> {
         let dummy_modification = Modification::get_dummy_modification();
@@ -65,14 +117,13 @@ impl ModifiedDecoy {
         return Box::new(Array::from_vec(modification_ids, modifications.len() as i32));
     }
 
-
     fn modifications_from_psql_array(conn: &postgres::Connection, modification_ids: &Array<i64>) -> Result<Vec<Option<Modification>>, QueryError> {
         let dummy_modification = Modification::get_dummy_modification();
         // cast ids to string and join them with ', '
         let modification_ids_for_query: String = modification_ids.iter().map(|id| id.to_string()).collect::<Vec<String>>().join(", ");
         // condition for 'SELECT amino_acid_modifications WHERE id IN (id1, id2, ...)' 
         let condition: String = format!("id IN ({})", modification_ids_for_query);
-        let modifications = match Modification::select_where(conn, condition.as_str(), &[]) {
+        let modifications = match Modification::find_where(conn, condition.as_str(), &[]) {
             Ok(modifications) => modifications,
             Err(err) => return Err(err)
         };
@@ -136,35 +187,10 @@ impl Decoy for ModifiedDecoy {
     }
 
     fn get_header(&self) -> String {
-        // create a HashMap with key "mod_accession|mod_name" and value Vec<String> which contains the positions of the modification
-        let mut accession_header_position_map: HashMap<String, Vec<String>> = HashMap::new();
-        for idx in 0..(self.modifications.len()) {
-            match &self.modifications[idx] {
-                Some(modification) => {
-                    let peff_notification_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
-                    let positions = match accession_header_position_map.entry(peff_notification_of_accession_and_name) {
-                        Vacant(entry) => entry.insert(Vec::new()),
-                        Occupied(entry) => entry.into_mut(),
-                    };
-                    positions.push(idx.to_string());
-                },
-                None => ()
-            }
-        }
-        let mut mod_res_unimod: String = String::new();
-        for (accession_and_header, positions) in &accession_header_position_map {
-            mod_res_unimod.push_str(
-                format!(
-                    "({}|{})",
-                    positions.join(","),
-                    accession_and_header
-                ).as_str()
-            );
-        }
         return format!(
-            "{} ModResUniMod={}",
+            "{} {}",
             self.base_decoy.get_header(),
-            mod_res_unimod
+            self.header_addition
         )
     }
 
@@ -249,7 +275,8 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
                 n_terminus_modification: n_terminus_modification,
                 modification_ids: modification_ids,
                 modifications: modifications,
-                weight: row.get(5)
+                weight: row.get(5),
+                header_addition: row.get(6)
             }
         );
     }
@@ -281,19 +308,19 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
 
 
     fn create_query() -> &'static str {
-        return "INSERT INTO modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) DO NOTHING RETURNING id;";
+        return "INSERT INTO modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight, header_addition) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) DO NOTHING RETURNING id;";
     }
 
     fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
-        return Box::new(vec![&self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]);
+        return Box::new(vec![&self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight, &self.header_addition]);
     }
 
     fn update_query() -> &'static str{
-        return "UPDATE modified_decoys SET base_decoy_id = $2, c_terminus_modification_id = $3, n_terminus_modification_id = $4, modification_ids = $5, weight = $6 WHERE id = $1;";
+        return "UPDATE modified_decoys SET base_decoy_id = $2, c_terminus_modification_id = $3, n_terminus_modification_id = $4, modification_ids = $5, weight = $6, header_addition = $7 WHERE id = $1;";
     }
 
     fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
-        return Box::new(vec![&self.id, &self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight]);
+        return Box::new(vec![&self.id, &self.base_decoy_id, &self.c_terminus_modification_id, &self.n_terminus_modification_id, &self.modification_ids, &self.weight, &self.header_addition]);
     }
 
     fn delete_query() -> &'static str {
@@ -352,6 +379,7 @@ impl Clone for ModifiedDecoy {
             modification_ids: self.modification_ids.clone(),
             modifications: self.modifications.clone(),
             weight: self.get_weight(),
+            header_addition: self.header_addition
         }
     }
 }
