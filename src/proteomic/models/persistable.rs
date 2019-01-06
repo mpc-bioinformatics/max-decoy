@@ -239,8 +239,8 @@ pub trait Persistable<T, PK, UI> {
     }
     ///
     
-    /// select 
-    fn select_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<T>, QueryError> {
+    /// select where
+    fn find_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<T>, QueryError> {
         let select_query: String = format!("SELECT * FROM {} WHERE {};", Self::get_table_name(), conditions);
         match conn.query(select_query.as_str(), values) {
             Ok(ref rows) => {
@@ -270,7 +270,7 @@ pub trait Persistable<T, PK, UI> {
     /// 
     
     /// count 
-    fn get_count(conn: &postgres::Connection) -> Result<i64, QueryError> {
+    fn count(conn: &postgres::Connection) -> Result<i64, QueryError> {
         let query: String = format!("SELECT cast(count(id) AS BIGINT) FROM {};", Self::get_table_name());
         return match conn.query(query.as_str(), &[]) {
             Ok(ref rows) if rows.len() > 0 => Ok(rows.get(0).get::<usize, i64>(0)),
@@ -279,6 +279,17 @@ pub trait Persistable<T, PK, UI> {
         };
     }
     ///
+    
+    /// count where
+    fn count_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<i64, QueryError> {
+        let query: String = format!("SELECT cast(count(id) AS BIGINT) FROM {} WHERE {};", Self::get_table_name(), conditions);
+        return match conn.query(query.as_str(), values) {
+            Ok(ref rows) if rows.len() > 0 => Ok(rows.get(0).get::<usize, i64>(0)),
+            Ok(_rows) => Err(QueryError::NoReturn),
+            Err(err) => Err(handle_postgres_error(&err))
+        };
+    }
+    /// 
     //////
     
     ////// hooks
