@@ -21,14 +21,17 @@ CREATE TABLE peptides (
 
 -- create partitions
 -- CREATE TABLE peptides_%d PARTITION OF peptides FOR VALUES FROM (%d) TO (%d);
+CREATE TABLE peptides_0 PARTITION OF peptides FOR VALUES FROM (1) TO (2014015050);
+CREATE TABLE peptides_99 PARTITION OF peptides FOR VALUES FROM (2014015051) TO (12000000000);
+
 
 CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
 CREATE INDEX peptide_length_idx ON peptides (length);
 
 
 CREATE TABLE peptides_proteins (
-    peptide_id BIGINT REFERENCES NOT NULL,
-    protein_id BIGINT REFERENCES NOT NULL,
+    peptide_id BIGINT NOT NULL,
+    protein_id BIGINT NOT NULL,
     PRIMARY KEY (peptide_id, protein_id)
 );
 
@@ -57,10 +60,11 @@ CREATE TABLE IF NOT EXISTS base_decoys (
 
 CREATE TABLE IF NOT EXISTS modified_decoys (
     id BIGSERIAL PRIMARY KEY,
-    base_decoy_id BIGINT REFERENCES base_decoys(id),
-    c_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id),
-    n_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id),
+    base_decoy_id BIGINT REFERENCES base_decoys(id) NOT NULL,
+    c_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id) NOT NULL,
+    n_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id) NOT NULL,
     modification_ids BIGINT ARRAY NOT NULL,
     weight BIGINT NOT null,
-    UNIQUE (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight),
+    header_addition TEXT NOT NULL,
+    UNIQUE (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight)
 );
