@@ -55,7 +55,7 @@ impl DecoyGenerator {
             mass::convert_mass_to_float(lower_weight_limit), 
             mass::convert_mass_to_float(upper_weight_limit)
         );
-        println!("Found already {} fitting decoys, will generate {} more.", already_fitting_decoys, decoy_difference);
+        println!("Found {} already fitting decoys, will generate {} more.", already_fitting_decoys, decoy_difference);
         return DecoyGenerator{
             upper_weight_limit: upper_weight_limit,
             lower_weight_limit: lower_weight_limit,
@@ -109,6 +109,7 @@ impl DecoyGenerator {
             // create threadpoll
             let thread_pool = ThreadPool::new(self.thread_count);
             // loop for starting threads
+            let start_time: f64 = time::precise_time_s();
             for _ in 0..self.thread_count {
                 // create copies of thread safe pointer of DecoyGenerator which can be move into thread
                 let decoy_counter_ptr = self.decoy_counter.clone();
@@ -258,6 +259,8 @@ impl DecoyGenerator {
                 });
             }
             thread_pool.join();
+            let stop_time: f64 = time::precise_time_s();
+            println!("generate {} decoys in {} s", self.decoy_counter.load(Ordering::Relaxed), stop_time - start_time);
         } else {
             println!("There are plenty of decoys within the given range. nothing to do here.")
         }
