@@ -2,11 +2,8 @@ extern crate postgres;
 
 use std::hash::{Hash, Hasher};
 
-use self::postgres::Connection;
-
-use proteomic::models::decoys::decoy::Decoy;
-use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
-use proteomic::models::peptide::Peptide;
+use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
+use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, FromSqlRowError};
 use proteomic::models::mass;
 
 pub struct BaseDecoy {
@@ -25,6 +22,31 @@ impl BaseDecoy {
             length: aa_sequence.len() as i32,
             aa_sequence: aa_sequence.to_owned(),
             weight: weight
+        }
+    }
+
+    // row must contain [header, aa_sequence, weight] in this order
+    fn prepared_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
+        return PlainDecoy::new(
+            format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
+            &row.get::<usize, String>(0), 
+            &row.get(3)
+        );
+    }
+
+    // this function works like find_where() but to save time it will return PlainDecoy instead of loading all modifications first
+    pub fn find_where_as_prepared_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<PlainDecoy>, QueryError> {
+        let select_query: String = format!("SELECT header, aa_sequence, weight FROM {} WHERE {};", Self::get_table_name(), conditions);
+        println!("{}", select_query);
+        match conn.query(select_query.as_str(), values) {
+            Ok(ref rows) => {
+                let mut records: Vec<PlainDecoy> = Vec::new();
+                for row in rows {
+                    records.push(Self::prepared_decoy_from_sql_row(&row));
+                }
+                return Ok(records);
+            },
+            Err(err) => Err(handle_postgres_error(&err))
         }
     }
 }

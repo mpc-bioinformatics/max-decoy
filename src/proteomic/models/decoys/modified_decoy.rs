@@ -8,7 +8,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use self::postgres::Connection;
 use self::postgres_array::Array;
 
-use proteomic::models::decoys::decoy::{Decoy, PreparedDecoy};
+use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
 use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
 use proteomic::models::amino_acids::modification::Modification;
@@ -173,6 +173,36 @@ impl ModifiedDecoy {
 
     fn get_modification_ids(&self) -> &Array<i64> {
         return &self.modification_ids;
+    }
+
+    // row must contain [base_decoy.aa_sequence, base_decoy.header, modified_decoy.header_addition, modified_decoy.weight] in this order
+    fn prepared_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
+        return PlainDecoy::new(
+            format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
+            &row.get::<usize, String>(0), 
+            &row.get(3)
+        );
+    }
+
+    // this function works like find_where() but to save time it will return PlainDecoy instead of loading all modifications first
+    pub fn find_where_as_prepared_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<PlainDecoy>, QueryError> {
+        let select_query: String = format!(
+            "SELECT {base_decoys_table}.aa_sequence, {base_decoys_table}.header, {modified_decoys_table}.header_addition, {modified_decoys_table}.weight FROM {modified_decoys_table} INNER JOIN base_decoys ON {modified_decoys_table}.base_decoy_id={base_decoys_table}.id WHERE {conditions};",
+            modified_decoys_table = Self::get_table_name(),
+            base_decoys_table = BaseDecoy::get_table_name(),
+            conditions = conditions
+        );
+        println!("{}", select_query);
+        match conn.query(select_query.as_str(), values) {
+            Ok(ref rows) => {
+                let mut records: Vec<PlainDecoy> = Vec::new();
+                for row in rows {
+                    records.push(Self::prepared_decoy_from_sql_row(&row));
+                }
+                return Ok(records);
+            },
+            Err(err) => Err(handle_postgres_error(&err))
+        }
     }
 }
 
@@ -379,7 +409,7 @@ impl Clone for ModifiedDecoy {
             modification_ids: self.modification_ids.clone(),
             modifications: self.modifications.clone(),
             weight: self.get_weight(),
-            header_addition: self.header_addition
+            header_addition: self.header_addition.clone()
         }
     }
 }
