@@ -196,7 +196,7 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
                 Err(_) => panic!("ERROR [decoy-generation]: could not cast lower-mass-tolerance to integer")
             }
         },
-        None => 1000
+        None => 5
     };
     let upper_mass_tolerance: i64 = match decoy_generation_cli_args.value_of("UPPER_MASS_TOLERANCE") {
         Some(number_string) => {
@@ -205,7 +205,7 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
                 Err(_) => panic!("ERROR [decoy-generation]: could not cast upper-mass-tolerance to integer")
             }
         },
-        None => 1000
+        None => 5
     };
     let weight: f64 = match decoy_generation_cli_args.value_of("WEIGHT") {
         Some(number_string) => {
