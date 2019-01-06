@@ -37,13 +37,10 @@ pub struct DecoyGenerator {
 }
 
 impl DecoyGenerator {
-    pub fn new(weight: f64, upper_limit_ppm: i64, lower_limit_ppm: i64, decoy_limit: usize, thread_count: usize, max_modifications_per_decoy: i32, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
-        let weight_as_int = mass::convert_mass_to_int(weight);
-        let weight_upper_limit_ppm = weight_as_int / 1000000 * upper_limit_ppm as i64;
-        let weight_lower_limit_ppm = weight_as_int / 1000000 * lower_limit_ppm as i64;
+    pub fn new(weight: f64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, decoy_limit: usize, thread_count: usize, max_modifications_per_decoy: i32, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
-            upper_weight_limit: weight_as_int + weight_upper_limit_ppm,
-            lower_weight_limit: weight_as_int - weight_lower_limit_ppm,
+            upper_weight_limit: mass::convert_mass_to_int(weight + (weight / 1000000.0 * upper_mass_limit_ppm as f64)),
+            lower_weight_limit: mass::convert_mass_to_int(weight - (weight / 1000000.0 * lower_mass_limit_ppm as f64)),
             decoy_limit: decoy_limit,
             thread_count: thread_count,
             decoy_counter: Arc::new(AtomicUsize::new(0)),
@@ -51,6 +48,14 @@ impl DecoyGenerator {
             fixed_modification_map: Arc::new(Mutex::new(fixed_modification_map.clone())),
             variable_modification_map: Arc::new(Mutex::new(variable_modification_map.clone()))
         }
+    }
+
+    pub fn get_lower_weight_limit(&self) -> i64 {
+        return self.lower_weight_limit;
+    }
+
+    pub fn get_upper_weight_limit(&self) -> i64 {
+        return self.upper_weight_limit;
     }
 
     // generate array which holds natural distribution of amino acids (published by UniProt)
@@ -82,6 +87,11 @@ impl DecoyGenerator {
     }
 
     pub fn generate_decoys(&self) {
+        println!(
+            "Creating decoys with mass of {} to {}",
+            mass::convert_mass_to_float(self.lower_weight_limit), 
+            mass::convert_mass_to_float(self.upper_weight_limit)
+        );
         // create threadpoll
         let thread_pool = ThreadPool::new(self.thread_count);
         // loop for starting threads
@@ -204,9 +214,7 @@ impl DecoyGenerator {
                                     if !base_decoy.is_persisted() {
                                         match base_decoy.create(&conn) {
                                             Ok(query_ok) => match query_ok {
-                                                QueryOk::Created => {
-                                                    decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
-                                                },
+                                                QueryOk::Created => (),
                                                 QueryOk::AlreadyExists => (),
                                                 _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in BaseDecoy.create(), so this panic shoud not be reached.")
                                             },
