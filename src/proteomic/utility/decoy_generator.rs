@@ -119,23 +119,41 @@ impl DecoyGenerator {
                         // get array of fitting amino acids
                         let distribution_array = *Self::generate_amino_acid_distribution_array();
                         // repeat until new_decoy's weight is smaller than the haviest amino acid.
-                        while new_decoy.get_distance_to_hit_mass_tolerance() >= haviest_amino_acid.get_mono_mass() {
+                        while new_decoy.get_distance_to_mass_tolerance() >= haviest_amino_acid.get_mono_mass() {
                             // pick amino acids one letter code at index
                             let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
                             // one letter code to amino acid
                             let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                            new_decoy.push_amino_acid(&random_amino_acid);
+                            let modification_option = match fixed_modification_map_ptr.lock() {
+                                Ok(fixed_modifications_map) => {
+                                    match fixed_modifications_map.get(&random_amino_acid.get_one_letter_code()){
+                                        Some(modification) => Some(modification.clone()),
+                                        None => None
+                                    }
+                                },
+                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): could not gather lock for variable modifications")
+                            };
+                            new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
                             //println!("{} => {}", new_decoy.get_aa_sequence(), new_decoy.get_weight());
                         }
-                        let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_hit_mass_tolerance());
+                        let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance());
                         while still_fitting_amino_acids.len() > 0 {
                             // pick amino acids one letter code at index
                             let aa_one_letter_code: char = *still_fitting_amino_acids.choose(&mut rng).unwrap();
                             // one letter code to amino acid
                             let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                            new_decoy.push_amino_acid(&random_amino_acid);
+                            let modification_option = match fixed_modification_map_ptr.lock() {
+                                Ok(fixed_modifications_map) => {
+                                    match fixed_modifications_map.get(&random_amino_acid.get_one_letter_code()){
+                                        Some(modification) => Some(modification.clone()),
+                                        None => None
+                                    }
+                                },
+                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): could not gather lock for variable modifications")
+                            };
+                            new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
                             //println!("{} => {}", new_decoy.get_aa_sequence(), new_decoy.get_weight());
-                            still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_hit_mass_tolerance());
+                            still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance());
                         }
                         let mut base_decoy: BaseDecoy = new_decoy.as_base_decoy();
                         // check if decoy is peptide
@@ -165,53 +183,52 @@ impl DecoyGenerator {
                                 modification_positions.push(idx);
                             }
                             modification_positions.push(-2); // -2 is c_terminus
-                            for current_modification_max in 1..max_modifications_per_decoy + 1 {
-                                let combinations = NChooseK::new(current_modification_max, modification_positions.clone());
-                                for combination in combinations {
+                            for chunk_size in 1..max_modifications_per_decoy + 1 {
+                                let combinations = NChooseK::new(chunk_size, modification_positions.clone());
+                                'combination_loop: for combination in combinations {
+                                    new_decoy.remove_all_variable_modifications();
                                     for modification_position in combination {
                                         let amino_acid_one_letter_code = match modification_position {
                                             -1 => new_decoy.get_n_terminus_amino_acid(),
                                             -2 => new_decoy.get_c_terminus_amino_acid(),
                                             _ => new_decoy.get_amino_acid_at(modification_position as usize)
                                         };
-                                        let mut modification_option: Option<Modification> = match fixed_modification_map_ptr.lock() {
-                                            Ok(fixed_modifications_map) => {
-                                                match fixed_modifications_map.get(&amino_acid_one_letter_code) {
+                                        let modification_option = match variable_modification_map_ptr.lock() {
+                                            Ok(variable_modifications_map) => {
+                                                match variable_modifications_map.get(&amino_acid_one_letter_code){
                                                     Some(modification) => Some(modification.clone()),
                                                     None => None
                                                 }
                                             },
-                                            Err(_) => panic!("ERROR [DecoyGenerator]: could not gather lock for fixed modifications")
+                                            Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): could not gather lock for variable modifications")
                                         };
-                                        if modification_option.is_none() {
-                                            modification_option = match variable_modification_map_ptr.lock() {
-                                                Ok(variable_modifications_map) => {
-                                                    match variable_modifications_map.get(&amino_acid_one_letter_code){
-                                                        Some(modification) => Some(modification.clone()),
-                                                        None => None
-                                                    }
-                                                },
-                                                Err(_) => panic!("ERROR [DecoyGenerator]: could not gather lock for variable modifications")
-                                            };
-                                        }
                                         if let Some(modification) = modification_option {
                                             match modification_position {
-                                                -1 => match new_decoy.set_n_terminus_modification(&modification) {
+                                                -1 => match new_decoy.set_variable_n_terminus_modification(&modification) {
                                                     Ok(_) => (),
                                                     Err(new_decoy_err) => match new_decoy_err {
-                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code.")
+                                                        NewDecoyError::OutrangeMassTolerance => continue 'combination_loop,
+                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_variable_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
+                                                        NewDecoyError::ModificationIsNotVariable => panic!("proteomic::utility::decoy_generator::generate(): Non-variable modification is passed to NewDecoy.set_variable_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
+                                                        _ => ()
                                                     }
                                                 },
-                                                -2 => match new_decoy.set_c_terminus_modification(&modification) {
+                                                -2 => match new_decoy.set_variable_c_terminus_modification(&modification) {
                                                     Ok(_) => (),
                                                     Err(new_decoy_err) => match new_decoy_err {
-                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_c_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code.")
+                                                        NewDecoyError::OutrangeMassTolerance => continue 'combination_loop,
+                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_variable_c_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
+                                                        NewDecoyError::ModificationIsNotVariable => panic!("proteomic::utility::decoy_generator::generate(): Non-variable modification is passed to NewDecoy.set_variable_c_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
+                                                        _ => ()
                                                     }
                                                 },
-                                                _ => match new_decoy.set_modification_at(modification_position as usize, &modification) {
+                                                _ => match new_decoy.set_variable_modification_at(modification_position as usize, &modification) {
                                                     Ok(_) => (),
                                                     Err(new_decoy_err) => match new_decoy_err {
-                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_modification_at(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code.")
+                                                        NewDecoyError::OutrangeMassTolerance => continue 'combination_loop,
+                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_variable_modification_at(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
+                                                        NewDecoyError::ModificationIsNotVariable => panic!("proteomic::utility::decoy_generator::generate(): Non-variable modification is passed to NewDecoy.set_variable_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
+                                                        _ => ()
                                                     }
                                                 }
                                             };
@@ -240,7 +257,6 @@ impl DecoyGenerator {
                                             Err(err) => println!("proteomic::utility::decoy_generator::generate() when ModifiedDecoy.create(): {}", err)
                                         }
                                     }
-                                    new_decoy.remove_all_modifications();
                                 }
                             }
                             if decoy_counter_ptr.load(Ordering::Relaxed) >= number_of_decoys_to_generate {
