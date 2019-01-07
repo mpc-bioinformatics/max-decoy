@@ -10,9 +10,12 @@ mod proteomic;
 use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
-use proteomic::models::enzyms::trypsin::Trypsin;
 use proteomic::utility::decoy_generator::DecoyGenerator;
 
+use proteomic::models::enzyms::trypsin::Trypsin;
+use proteomic::models::persistable::Persistable;
+use proteomic::models::peptide::Peptide;
+use proteomic::models::decoys::decoy::PlainDecoy;
 use proteomic::models::amino_acids::modification::Modification;
 
 
@@ -180,11 +183,11 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         },
         None => 0
     };
-    let number_of_decoys: usize = match decoy_generation_cli_args.value_of("NUMBER_OF_DECOYS") {
+    let number_of_decoys_per_target: i64 = match decoy_generation_cli_args.value_of("NUMBER_OF_DECOYS") {
         Some(number_string) => {
-            match number_string.to_owned().parse::<usize>() {
+            match number_string.to_owned().parse::<i64>() {
                 Ok(number) => number,
-                Err(_) => panic!("ERROR [decoy-generation]: could not cast number-of-decoys to (unsigned) integer")
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast number-of-decoys to integer")
             }
         },
         None => 1000
@@ -240,6 +243,7 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             1
         }
     };
+    let conn = DatabaseConnection::get_database_connection();
     Modification::make_sure_dummy_modification_exists();
     let mods = Modification::create_from_csv_file(&modification_csv_file);
     for modification in mods.iter() {
@@ -254,8 +258,21 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
         }
     }
-    let generator: DecoyGenerator = DecoyGenerator::new(weight, upper_mass_tolerance, lower_mass_tolerance, number_of_decoys, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
-    generator.generate_decoys();
+    let generator: DecoyGenerator = DecoyGenerator::new(weight, upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
+    let target_count = match Peptide::count_where(&conn, "weight BETWEEN $1 AND $2", &[&generator.get_lower_weight_limit(), &generator.get_upper_weight_limit()]) {
+        Ok(count) => count,
+        Err(err) => panic!("main::run_decoy_generation() could not gether target count: {}", err)
+    };
+    let decoy_count = match PlainDecoy::count_where_mass_tolerance(&conn, generator.get_lower_weight_limit(), generator.get_upper_weight_limit()) {
+        Ok(count) => count,
+        Err(err) => panic!("main::run_decoy_generation() could not gether decoy count: {}", err)
+    };
+    let mut number_of_decoys_to_generate: i64 = (target_count * number_of_decoys_per_target) - decoy_count;
+    if number_of_decoys_to_generate < 0 {
+        number_of_decoys_to_generate = 0;
+    }
+    generator.generate_decoys(number_of_decoys_to_generate as usize);
+
 }
 
 fn main() {
@@ -338,10 +355,10 @@ fn main() {
             .help("Integer, Default: 0")
         )
         .arg(
-            Arg::with_name("NUMBER_OF_DECOYS")
+            Arg::with_name("NUMBER_OF_DECOYS_PER_TARGET")
             .short("d")
-            .long("number-of-decoys")
-            .value_name("NUMBER_OF_DECOYS")
+            .long("number-of-decoys-per-target")
+            .value_name("NUMBER_OF_DECOYS_PER_TARGET")
             .takes_value(true)
             .help("Integer, Default: 1000")
         )
