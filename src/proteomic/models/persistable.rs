@@ -116,7 +116,7 @@ pub trait Persistable<T, PK, UI> {
         }
     }
     ///
-    
+
     /// create-query
     fn create_query() -> &'static str;
     fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
@@ -153,7 +153,7 @@ pub trait Persistable<T, PK, UI> {
         }
     }
     ///
-    
+
     /// update
     fn update_query() -> &'static str;
     fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
@@ -175,8 +175,8 @@ pub trait Persistable<T, PK, UI> {
         }
     }
     ///
-    
-    
+
+
     /// delete
     fn delete_query() -> &'static str;
     fn delete_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
@@ -203,7 +203,7 @@ pub trait Persistable<T, PK, UI> {
         }
     }
     ///
-    
+
     /// delete where
     fn delete_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<QueryOk, QueryError> {
         let delete_query: String = format!("DELETE FROM {} WHERE {};", Self::get_table_name(), conditions);
@@ -212,8 +212,8 @@ pub trait Persistable<T, PK, UI> {
             Err(err) => Err(handle_postgres_error(&err))
         }
     }
-    /// 
- 
+    ///
+
     /// exists-query
     fn exists_query() -> &'static str;
     fn exists_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>;
@@ -237,8 +237,16 @@ pub trait Persistable<T, PK, UI> {
             Err(err) => Err(handle_postgres_error(&err))
         }
     }
+    fn exists_where(conn: &postgres::Connection, condition: &str, values: &[&postgres::types::ToSql]) -> Result<QueryOk, QueryError> {
+        let query: String = format!("SELECT FROM {} WHERE {} LIMIT 1;", Self::get_table_name(), condition); // LIMIT 1 reduces execution and planning time
+        match conn.query(query.as_str(), values) {
+            Ok(ref rows) if rows.len() > 0 => return Ok(QueryOk::Exists),
+            Ok(_rows) => return Err(QueryError::NoMatch),
+            Err(err) => Err(handle_postgres_error(&err))
+        }
+    }
     ///
-    
+
     /// select where
     fn find_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<T>, QueryError> {
         let select_query: String = format!("SELECT * FROM {} WHERE {};", Self::get_table_name(), conditions);
@@ -250,7 +258,7 @@ pub trait Persistable<T, PK, UI> {
                         Ok(record) => records.push(record),
                         Err(err) => return Err(QueryError::InnerError(err.to_string()))
                     }
-                    
+
                 }
                 return Ok(records);
             },
@@ -258,7 +266,7 @@ pub trait Persistable<T, PK, UI> {
         }
     }
     ///
-    
+
     /// save
     fn save(&mut self, conn: &postgres::Connection) -> Result<QueryOk, QueryError> {
         if self.is_persisted() {
@@ -267,9 +275,9 @@ pub trait Persistable<T, PK, UI> {
             return self.create(conn);
         }
     }
-    /// 
-    
-    /// count 
+    ///
+
+    /// count
     fn count(conn: &postgres::Connection) -> Result<i64, QueryError> {
         let query: String = format!("SELECT cast(count(id) AS BIGINT) FROM {};", Self::get_table_name());
         return match conn.query(query.as_str(), &[]) {
@@ -279,7 +287,7 @@ pub trait Persistable<T, PK, UI> {
         };
     }
     ///
-    
+
     /// count where
     fn count_where(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<i64, QueryError> {
         let query: String = format!("SELECT cast(count(id) AS BIGINT) FROM {} WHERE {};", Self::get_table_name(), conditions);
@@ -289,11 +297,11 @@ pub trait Persistable<T, PK, UI> {
             Err(err) => Err(handle_postgres_error(&err))
         };
     }
-    /// 
+    ///
     //////
-    
+
     ////// hooks
-    /// 
+    ///
     fn before_delete_hook(&self) -> Result<(), QueryError>;
     //
 }
