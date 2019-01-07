@@ -14,8 +14,8 @@ use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::combinations::n_choose_k::NChooseK;
 // use proteomic::utility::mass::NeutralLoss;
-// use proteomic::models::peptide::Peptide;
-use proteomic::models::persistable::{Persistable, QueryOk};
+use proteomic::models::peptide::Peptide;
+use proteomic::models::persistable::{Persistable, QueryOk, QueryError};
 use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
 use proteomic::models::decoys::new_decoy::{NewDecoy, NewDecoyError};
 use proteomic::models::decoys::base_decoy::BaseDecoy;
@@ -27,7 +27,6 @@ const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['A', 'R', 'N', 'D', 
 pub struct DecoyGenerator {
     upper_weight_limit: i64,
     lower_weight_limit: i64,
-    number_of_decoys_to_generate: usize,
     thread_count: usize,
     decoy_counter: Arc<AtomicUsize>,
     max_modifications_per_decoy: i32,
@@ -36,30 +35,10 @@ pub struct DecoyGenerator {
 }
 
 impl DecoyGenerator {
-    pub fn new(weight: f64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, number_of_decoys_to_generate: usize, thread_count: usize, max_modifications_per_decoy: i32, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
-        let upper_weight_limit = mass::convert_mass_to_int(weight + (weight / 1000000.0 * upper_mass_limit_ppm as f64));
-        let lower_weight_limit = mass::convert_mass_to_int(weight - (weight / 1000000.0 * lower_mass_limit_ppm as f64));
-        let conn = DatabaseConnection::get_database_connection();
-        let already_fitting_decoys: usize = match PlainDecoy::count_where_mass_tolerance(&conn, lower_weight_limit, upper_weight_limit) {
-            Ok(count) => count as usize,
-            Err(_) => 0
-        };
-        // make sure that only the difference between number of decoys in database and number of requested decoys are generated
-        let mut decoy_difference: usize = 0;
-        if already_fitting_decoys < number_of_decoys_to_generate {
-            decoy_difference = number_of_decoys_to_generate - already_fitting_decoys;
-        }
-        println!(
-            "Should generate {} decoys within mass tolerance of {} to {}.",
-            number_of_decoys_to_generate,
-            mass::convert_mass_to_float(lower_weight_limit), 
-            mass::convert_mass_to_float(upper_weight_limit)
-        );
-        println!("Found {} already fitting decoys, will generate {} more.", already_fitting_decoys, decoy_difference);
+    pub fn new(weight: f64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: i32, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
-            upper_weight_limit: upper_weight_limit,
-            lower_weight_limit: lower_weight_limit,
-            number_of_decoys_to_generate: decoy_difference,
+            upper_weight_limit: mass::convert_mass_to_int(weight + (weight / 1000000.0 * upper_mass_limit_ppm as f64)),
+            lower_weight_limit: mass::convert_mass_to_int(weight - (weight / 1000000.0 * lower_mass_limit_ppm as f64)),
             thread_count: thread_count,
             decoy_counter: Arc::new(AtomicUsize::new(0)),
             max_modifications_per_decoy: max_modifications_per_decoy,
@@ -104,8 +83,14 @@ impl DecoyGenerator {
         return Box::new(amino_acids);
     }
 
-    pub fn generate_decoys(&self) {
-        if self.number_of_decoys_to_generate > 0 {
+    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) {
+        println!(
+            "Need to build {} decoys with weight {} to {}",
+            number_of_decoys_to_generate,
+            mass::convert_mass_to_float(self.lower_weight_limit),
+            mass::convert_mass_to_float(self.upper_weight_limit)
+        );
+        if number_of_decoys_to_generate > 0 {
             // create threadpoll
             let thread_pool = ThreadPool::new(self.thread_count);
             // loop for starting threads
@@ -118,7 +103,6 @@ impl DecoyGenerator {
                 // copy primitive attributes of DecoyGenerator which can be moved into thread
                 let upper_weight_limit = self.upper_weight_limit;
                 let lower_weight_limit = self.lower_weight_limit;
-                let number_of_decoys_to_generate = self.number_of_decoys_to_generate;
                 let max_modifications_per_decoy = self.max_modifications_per_decoy;
                 // start thread
                 thread_pool.execute(move||{
@@ -154,6 +138,14 @@ impl DecoyGenerator {
                             still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_hit_mass_tolerance());
                         }
                         let mut base_decoy: BaseDecoy = new_decoy.as_base_decoy();
+                        // check if decoy is peptide
+                        match Peptide::exists_where(&conn, "aa_sequence = $1", &[&new_decoy.get_aa_sequence()]) {
+                            Ok(_) => continue 'decoy_loop,  // if decoy is peptide, continue with next iteration
+                            Err(err) => match err {
+                                QueryError::NoMatch => (),  // if no match is found continue with this decoy
+                                _ => panic!("proteomic::utility::decoy_generator.generate_decoys() could not check if decoy is peptide: {}", err)
+                            }
+                        }
                         if new_decoy.hits_mass_tolerance() {
                             match base_decoy.create(&conn) {
                                 Ok(query_ok) => match query_ok {
