@@ -10,6 +10,7 @@ use proteomic::models::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 use proteomic::models::enzyms::results::digest_ok::DigestOk;
 use proteomic::models::enzyms::results::digest_error::DigestError;
+use proteomic::models::amino_acids::amino_acid::AminoAcid;
 
 const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(20);
 
@@ -188,7 +189,7 @@ pub trait DigestEnzym {
                 if temp_idx < peptides_without_missed_cleavages.len() {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                        aa_sequences.insert(Peptide::gerneralize_aa_sequence(&new_peptide_aa_sequence));
+                        aa_sequences.insert(AminoAcid::gerneralize_sequence(&new_peptide_aa_sequence));
                     }
                 } else {
                     break;

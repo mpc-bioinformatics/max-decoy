@@ -24,7 +24,7 @@ pub struct Peptide {
 
 impl Peptide {
     pub fn new(aa_sequence: String, digest_enzym: String, number_of_missed_cleavages: i16) -> Peptide {
-        let generalized_aa_sequence: String = Peptide::gerneralize_aa_sequence(&aa_sequence);
+        let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(&aa_sequence);
         return Peptide{
             id: 0,
             length: generalized_aa_sequence.len() as i32,
@@ -49,10 +49,6 @@ impl Peptide {
             self.number_of_missed_cleavages,
             self.weight
         );
-    }
-
-    pub fn gerneralize_aa_sequence(aa_sequence: &String) -> String {
-        return aa_sequence.replace("I", "J").replace("L", "J");
     }
 
     pub fn get_weight(&self) -> f64 {

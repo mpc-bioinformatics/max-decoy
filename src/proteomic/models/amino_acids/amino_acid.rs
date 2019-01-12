@@ -126,6 +126,10 @@ impl AminoAcid {
         }
         return weight;
     }
+
+    pub fn gerneralize_sequence(sequence: &str) -> String {
+        return sequence.replace("I", "J").replace("L", "J");
+    }
 }
 
 
