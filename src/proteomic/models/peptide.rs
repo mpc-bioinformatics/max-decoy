@@ -65,7 +65,7 @@ impl Persistable<Peptide, i64, String> for Peptide {
         return Ok(
             Self{
                 id: row.get(0),
-                aa_sequence: row.get(1),
+                aa_sequence: row.get::<usize, String>(1).trim().to_owned(),     // remember that aa_sequence is saved as CHAR(60) which means the database will fill it up with whitespaces if it is shorter
                 length: row.get(2),
                 number_of_missed_cleavages: row.get(3),
                 weight: row.get(4),
