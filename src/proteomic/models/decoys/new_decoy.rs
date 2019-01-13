@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use proteomic::models::amino_acids::modification::{Modification, ModificationPosition};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::mass;
@@ -40,6 +42,26 @@ impl NewDecoy {
             c_terminus_modification: None,
             number_of_modifications: 0
         }
+    }
+
+    pub fn from_string(aa_sequence: &str, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
+        let mut new_decoy = Self::new(lower_weight_limit, upper_weight_limit);
+        for amino_acids_one_letter_code in aa_sequence.chars() {
+            let amino_acid = AminoAcid::get(amino_acids_one_letter_code);
+            let modification_option = match fix_modifications.get(&amino_acids_one_letter_code) {
+                Some(ref modification) => Some((*modification).clone()), 
+                None => None
+            };
+            match new_decoy.push_amino_acid_and_fix_modification(&amino_acid, &modification_option) {
+                Ok(_) => (),
+                Err(err) => match err {
+                    NewDecoyError::OutrangeMassTolerance => continue,
+                    NewDecoyError::ModificationIsNotFix => panic!("proteomic::models::decoys::decoy::new_decoy::NewDecoy::from_string(): variable modification is passed to push_amino_acid_and_fix_modification(), which actually should not happen here."),
+                    _ => panic!("proteomic::models::decoys::decoy::new_decoy::NewDecoy::from_string(): only NewDecoyError::OutrangeMassTolerance and NewDecoyError::ModificationIsNotFix should returned here, but something else was retuned."),
+                }
+            }
+        }
+        return new_decoy;
     }
 
     pub fn get_modified_weight(&self) -> i64 {
