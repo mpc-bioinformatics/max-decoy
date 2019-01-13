@@ -2,10 +2,11 @@ extern crate rand;
 extern crate threadpool;
 
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 
 use self::rand::seq::SliceRandom;
 use self::threadpool::ThreadPool;
@@ -30,8 +31,9 @@ pub struct DecoyGenerator {
     thread_count: usize,
     decoy_counter: Arc<AtomicUsize>,
     max_modifications_per_decoy: i32,
-    fixed_modification_map: Arc<Mutex<HashMap<char, Modification>>>,
-    variable_modification_map: Arc<Mutex<HashMap<char, Modification>>>
+    fixed_modification_map: Arc<HashMap<char, Modification>>,
+    variable_modification_map: Arc<HashMap<char, Modification>>,
+    one_amino_acid_substitute_map: Arc<HashMap<char, HashMap<char, i64>>>
 }
 
 impl DecoyGenerator {
@@ -42,8 +44,9 @@ impl DecoyGenerator {
             thread_count: thread_count,
             decoy_counter: Arc::new(AtomicUsize::new(0)),
             max_modifications_per_decoy: max_modifications_per_decoy,
-            fixed_modification_map: Arc::new(Mutex::new(fixed_modification_map.clone())),
-            variable_modification_map: Arc::new(Mutex::new(variable_modification_map.clone()))
+            fixed_modification_map: Arc::new(fixed_modification_map.clone()),
+            variable_modification_map: Arc::new(variable_modification_map.clone()),
+            one_amino_acid_substitute_map: Arc::new(*Self::get_one_amino_acid_substitute_map(fixed_modification_map))
         }
     }
 
@@ -72,15 +75,21 @@ impl DecoyGenerator {
 
     // generate array with amino acids which have a mass less then a specific weight
     // by considering the fixed modifications
-    fn get_amino_acids_with_weight_less_or_equals_than(weight: i64) -> Box<Vec<char>> {
-        let mut amino_acids: Vec<char> = Vec::new();
+    fn get_amino_acids_with_weight_less_or_equals_than(weight: i64, fixed_modification_map: &Arc<HashMap<char, Modification>>) -> Box<Vec<char>> {
+        let mut amino_acids_and_modification_tupels: Vec<char> = Vec::new();
         for aa_one_letter_code in AMINO_ACIDS_FOR_DECOY_GENERATION {
             let current_amino_acid: AminoAcid = AminoAcid::get(*aa_one_letter_code);
-            if current_amino_acid.get_mono_mass() <= weight {
-                amino_acids.push(current_amino_acid.get_one_letter_code());
+            if let Some(ref modification) = fixed_modification_map.get(aa_one_letter_code) {
+                if (current_amino_acid.get_mono_mass() + modification.get_mono_mass()) <= weight {
+                    amino_acids_and_modification_tupels.push(*aa_one_letter_code);
+                }
+            } else {
+                if current_amino_acid.get_mono_mass() <= weight {
+                    amino_acids_and_modification_tupels.push(*aa_one_letter_code);
+                }
             }
         }
-        return Box::new(amino_acids);
+        return Box::new(amino_acids_and_modification_tupels);
     }
 
     pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) {
@@ -111,49 +120,47 @@ impl DecoyGenerator {
                     let mut rng = rand::thread_rng();
                     // get haviest and lightest amino acids
                     let haviest_amino_acid: AminoAcid = AminoAcid::get_haviest();
+                    let haviest_amino_acid_weight_with_modification: i64 = match fixed_modification_map_ptr.get(&haviest_amino_acid.get_one_letter_code()){
+                        Some(ref modification) => modification.get_mono_mass() + haviest_amino_acid.get_mono_mass(),
+                        None => haviest_amino_acid.get_mono_mass()
+                    };
                     // let lightest_amino_acid = AminoAcid::get_lightest();
                     // endless loop with label 'decoy_loop
                     'decoy_loop: loop {
                         // create new empty decoy
                         let mut new_decoy: NewDecoy = NewDecoy::new(lower_weight_limit, upper_weight_limit);
                         // get array of fitting amino acids
-                        let distribution_array = *Self::generate_amino_acid_distribution_array();
+                        //let distribution_array = *Self::generate_amino_acid_distribution_array();
                         // repeat until new_decoy's weight is smaller than the haviest amino acid.
-                        while new_decoy.get_distance_to_mass_tolerance() >= haviest_amino_acid.get_mono_mass() {
+                        while new_decoy.get_distance_to_mass_tolerance() >= haviest_amino_acid_weight_with_modification {
                             // pick amino acids one letter code at index
-                            let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
+                            //let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
+                            let aa_one_letter_code: char = *AMINO_ACIDS_FOR_DECOY_GENERATION.choose(&mut rng).unwrap();
                             // one letter code to amino acid
                             let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                            let modification_option = match fixed_modification_map_ptr.lock() {
-                                Ok(fixed_modifications_map) => {
-                                    match fixed_modifications_map.get(&random_amino_acid.get_one_letter_code()){
-                                        Some(modification) => Some(modification.clone()),
-                                        None => None
-                                    }
-                                },
-                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): could not gather lock for variable modifications")
+                            let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
+                                Some(ref modification) => Some((*modification).clone()),
+                                None => None
                             };
                             new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
-                            //println!("{} => {}", new_decoy.get_aa_sequence(), new_decoy.get_weight());
+                            //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                         }
-                        let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance());
+                        let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
                         while still_fitting_amino_acids.len() > 0 {
                             // pick amino acids one letter code at index
                             let aa_one_letter_code: char = *still_fitting_amino_acids.choose(&mut rng).unwrap();
                             // one letter code to amino acid
                             let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                            let modification_option = match fixed_modification_map_ptr.lock() {
-                                Ok(fixed_modifications_map) => {
-                                    match fixed_modifications_map.get(&random_amino_acid.get_one_letter_code()){
-                                        Some(modification) => Some(modification.clone()),
-                                        None => None
-                                    }
-                                },
-                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): could not gather lock for variable modifications")
+                            let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
+                                Some(ref modification) => Some((*modification).clone()),
+                                None => None
                             };
-                            new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
-                            //println!("{} => {}", new_decoy.get_aa_sequence(), new_decoy.get_weight());
-                            still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance());
+                            match new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option) {
+                                Ok(_) => (),
+                                Err(_) => ()
+                            }
+                            still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
+                            //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                         }
                         let mut base_decoy: BaseDecoy = new_decoy.as_base_decoy();
                         // check if decoy is peptide
@@ -168,7 +175,8 @@ impl DecoyGenerator {
                             match base_decoy.create(&conn) {
                                 Ok(query_ok) => match query_ok {
                                     QueryOk::Created => {
-                                        decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
+                                        let last_count = decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
+                                        println!("count: {}", last_count + 1);
                                     },
                                     QueryOk::AlreadyExists => (),
                                     _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in BaseDecoy.create(), so this panic shoud not be reached.")
@@ -176,93 +184,7 @@ impl DecoyGenerator {
                                 Err(err) => println!("proteomic::utility::decoy_generator::generate() when second BaseDecoy.create(): {}", err)
                             }
                         }
-                        if max_modifications_per_decoy > 0 {
-                            let mut modification_positions: Vec<i32> = Vec::new();
-                            modification_positions.push(-1); // -1 is n_terminus
-                            for idx in 0..new_decoy.get_length() {
-                                modification_positions.push(idx);
-                            }
-                            modification_positions.push(-2); // -2 is c_terminus
-                            for chunk_size in 1..max_modifications_per_decoy + 1 {
-                                let combinations = NChooseK::new(chunk_size, modification_positions.clone());
-                                'combination_loop: for combination in combinations {
-                                    new_decoy.remove_all_variable_modifications();
-                                    for modification_position in combination {
-                                        let amino_acid_one_letter_code = match modification_position {
-                                            -1 => new_decoy.get_n_terminus_amino_acid(),
-                                            -2 => new_decoy.get_c_terminus_amino_acid(),
-                                            _ => new_decoy.get_amino_acid_at(modification_position as usize)
-                                        };
-                                        let modification_option = match variable_modification_map_ptr.lock() {
-                                            Ok(variable_modifications_map) => {
-                                                match variable_modifications_map.get(&amino_acid_one_letter_code){
-                                                    Some(modification) => Some(modification.clone()),
-                                                    None => None
-                                                }
-                                            },
-                                            Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): could not gather lock for variable modifications")
-                                        };
-                                        if let Some(modification) = modification_option {
-                                            match modification_position {
-                                                -1 => match new_decoy.set_variable_n_terminus_modification(&modification) {
-                                                    Ok(_) => (),
-                                                    Err(new_decoy_err) => match new_decoy_err {
-                                                        NewDecoyError::OutrangeMassTolerance => continue 'combination_loop,
-                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_variable_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
-                                                        NewDecoyError::ModificationIsNotVariable => panic!("proteomic::utility::decoy_generator::generate(): Non-variable modification is passed to NewDecoy.set_variable_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
-                                                        _ => ()
-                                                    }
-                                                },
-                                                -2 => match new_decoy.set_variable_c_terminus_modification(&modification) {
-                                                    Ok(_) => (),
-                                                    Err(new_decoy_err) => match new_decoy_err {
-                                                        NewDecoyError::OutrangeMassTolerance => continue 'combination_loop,
-                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_variable_c_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
-                                                        NewDecoyError::ModificationIsNotVariable => panic!("proteomic::utility::decoy_generator::generate(): Non-variable modification is passed to NewDecoy.set_variable_c_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
-                                                        _ => ()
-                                                    }
-                                                },
-                                                _ => match new_decoy.set_variable_modification_at(modification_position as usize, &modification) {
-                                                    Ok(_) => (),
-                                                    Err(new_decoy_err) => match new_decoy_err {
-                                                        NewDecoyError::OutrangeMassTolerance => continue 'combination_loop,
-                                                        NewDecoyError::ModificationDoesNotMatchToAminoAcid => panic!("proteomic::utility::decoy_generator::generate(): Amino acid with non-matching modification is passed to NewDecoy.set_variable_modification_at(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
-                                                        NewDecoyError::ModificationIsNotVariable => panic!("proteomic::utility::decoy_generator::generate(): Non-variable modification is passed to NewDecoy.set_variable_n_terminus_modification(). This should not happen here, because the code get matching modification from HashMap with amino acid one letter code."),
-                                                        _ => ()
-                                                    }
-                                                }
-                                            };
-                                        }
-                                    }
-                                    if (new_decoy.get_number_of_modifications() > 0) & new_decoy.hits_mass_tolerance() {
-                                        if !base_decoy.is_persisted() {
-                                            match base_decoy.create(&conn) {
-                                                Ok(query_ok) => match query_ok {
-                                                    QueryOk::Created => (),             // do not increase counter here, because BaseDecoy is only created for reference to ModifiedDecoy
-                                                    QueryOk::AlreadyExists => (),
-                                                    _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in BaseDecoy.create(), so this panic shoud not be reached.")
-                                                },
-                                                Err(err) => println!("proteomic::utility::decoy_generator::generate() when second BaseDecoy.create(): {}", err)
-                                            }
-                                        }
-                                        let mut modified_decoy = new_decoy.as_modified_decoy(&base_decoy);
-                                        match modified_decoy.create(&conn) {
-                                            Ok(query_ok) => match query_ok {
-                                                QueryOk::Created => {
-                                                    decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
-                                                },
-                                                QueryOk::AlreadyExists => (),
-                                                _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in ModifiedDecoy.create(), so this panic shoud not be reached.")
-                                            },
-                                            Err(err) => println!("proteomic::utility::decoy_generator::generate() when ModifiedDecoy.create(): {}", err)
-                                        }
-                                    }
-                                }
-                            }
-                            if decoy_counter_ptr.load(Ordering::Relaxed) >= number_of_decoys_to_generate {
-                                break;
-                            }
-                        }
+                        // vary peptide
                     }
                 });
             }
@@ -272,5 +194,71 @@ impl DecoyGenerator {
         } else {
             println!("There are plenty of decoys within the given range. nothing to do here.")
         }
+    }
+
+    pub fn vary_targets(&self, targets: &Vec<Peptide>) -> Box<HashSet<PlainDecoy>> {
+        let conn: postgres::Connection = DatabaseConnection::get_database_connection();
+        let mut decoys: HashSet<PlainDecoy> = HashSet::new();
+        let mut rng = rand::thread_rng();
+        'targets_loop: for target in targets.iter() {
+            let mut aa_sequence: Vec<char> = target.get_aa_sequence().chars().collect();
+            'shuffle_loop: for _ in 0..1000 {
+                aa_sequence.shuffle(&mut rng);
+                let aa_sequence_as_string: String = aa_sequence.iter().map(|amino_acid| *amino_acid).collect::<String>();
+                match Peptide::exists_where(&conn, "aa_sequence = $1", &[&aa_sequence_as_string]) {
+                    Ok(_) => continue 'shuffle_loop,  // if decoy is peptide, continue with next iteration
+                    Err(err) => match err {
+                        QueryError::NoMatch => (),  // if no match is found continue with this decoy
+                        _ => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not check if shuffled target is peptide: {}", err)
+                    }
+                }
+                let mut new_decoy: NewDecoy = NewDecoy::from_string(aa_sequence_as_string.as_str(), self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
+                // let mut base_decoys = new_decoy.as_base_decoy();
+                if new_decoy.hits_mass_tolerance() {
+                    // match base_decoys.create(&conn) {
+                    //     Ok(query_ok) => match query_ok {
+                    //         QueryOk::Created => (),
+                    //         QueryOk::AlreadyExists => (),
+                    //         _ => ()
+                    //     },
+                    //     Err(query_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not create base decoy from shuffled target: {}", query_err)
+                    // }
+                    decoys.insert(PlainDecoy::new(new_decoy.get_header().as_str(), new_decoy.get_aa_sequence().as_str(), &new_decoy.get_modified_weight()));
+                }
+            }
+        }
+        return Box::new(decoys);
+    }
+
+    pub fn vary_new_decoy(&self, new_decoy: &mut NewDecoy) {
+        unimplemented!();
+    }
+
+    /// calculates a substitution map for swapping amino acids with each other.
+    /// so one can lookup which difference in weight a substitution of amino acid x with y has.
+    /// this function also considers fixed modifications
+    fn get_one_amino_acid_substitute_map(fixed_modification_map: &HashMap<char, Modification>) -> Box<HashMap<char, HashMap<char, i64>>> {
+        let mut substitution_map: HashMap<char, HashMap<char, i64>> = HashMap::new();
+        for aa_origin in AMINO_ACIDS_FOR_DECOY_GENERATION.iter() {
+            let mut differences_in_weight: HashMap<char, i64> = HashMap::new();
+            let mut aa_origin_weight: i64 = AminoAcid::get(*aa_origin).get_mono_mass();
+            aa_origin_weight += match fixed_modification_map.get(aa_origin){
+                Some(ref modification) => modification.get_mono_mass(),
+                None => 0
+            };
+            for aa_replacement in AMINO_ACIDS_FOR_DECOY_GENERATION.iter() {
+                if *aa_replacement == *aa_origin {
+                    continue;
+                }
+                let mut aa_replacement_weight: i64 = AminoAcid::get(*aa_replacement).get_mono_mass();
+                aa_replacement_weight += match fixed_modification_map.get(aa_replacement){
+                    Some(ref modification) => modification.get_mono_mass(),
+                    None => 0
+                };
+                differences_in_weight.insert(*aa_replacement, aa_replacement_weight - aa_origin_weight);
+            }
+            substitution_map.insert(*aa_origin, differences_in_weight);
+        }
+        return Box::new(substitution_map);
     }
 }
