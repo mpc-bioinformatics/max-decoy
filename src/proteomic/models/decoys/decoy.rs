@@ -1,5 +1,7 @@
 extern crate postgres;
 
+use std::hash::{Hash, Hasher};
+
 use proteomic::models::persistable::{Persistable, QueryError};
 use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::decoys::modified_decoy::ModifiedDecoy;
@@ -114,5 +116,26 @@ impl Decoy for PlainDecoy {
             Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
             None => '_'
         }
+    }
+}
+
+// PartialEq-implementation to use this type in a HashSet
+impl PartialEq for PlainDecoy {
+    fn eq(&self, other: &PlainDecoy) -> bool {
+       return self.header.eq(&other.get_header())
+        & self.aa_sequence.eq(&other.get_aa_sequence())
+        & (self.weight == other.get_weight());
+    }
+}
+
+// Eq-implementation to use this type in a HashSet
+impl Eq for PlainDecoy {}
+
+// Hash-implementation to use this type in a HashSet
+impl Hash for PlainDecoy {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.header.hash(state);
+        self.aa_sequence.hash(state);
+        self.weight.hash(state);
     }
 }
