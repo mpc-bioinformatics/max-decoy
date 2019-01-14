@@ -30,14 +30,14 @@ pub struct DecoyGenerator {
     lower_weight_limit: i64,
     thread_count: usize,
     decoy_counter: Arc<AtomicUsize>,
-    max_modifications_per_decoy: i32,
+    max_modifications_per_decoy: u8,
     fixed_modification_map: Arc<HashMap<char, Modification>>,
     variable_modification_map: Arc<HashMap<char, Modification>>,
     one_amino_acid_substitute_map: Arc<HashMap<char, HashMap<char, i64>>>
 }
 
 impl DecoyGenerator {
-    pub fn new(weight: f64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: i32, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
+    pub fn new(weight: f64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
             upper_weight_limit: mass::convert_mass_to_int(weight + (weight / 1000000.0 * upper_mass_limit_ppm as f64)),
             lower_weight_limit: mass::convert_mass_to_int(weight - (weight / 1000000.0 * lower_mass_limit_ppm as f64)),
@@ -109,6 +109,7 @@ impl DecoyGenerator {
                 let decoy_counter_ptr = self.decoy_counter.clone();
                 let fixed_modification_map_ptr = self.fixed_modification_map.clone();
                 let variable_modification_map_ptr = self.variable_modification_map.clone();
+                let one_amino_acid_substitute_map_ptr = self.one_amino_acid_substitute_map.clone();
                 // copy primitive attributes of DecoyGenerator which can be moved into thread
                 let upper_weight_limit = self.upper_weight_limit;
                 let lower_weight_limit = self.lower_weight_limit;
@@ -162,29 +163,13 @@ impl DecoyGenerator {
                             still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
                             //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                         }
-                        let mut base_decoy: BaseDecoy = new_decoy.as_base_decoy();
-                        // check if decoy is peptide
-                        match Peptide::exists_where(&conn, "aa_sequence = $1", &[&new_decoy.get_aa_sequence()]) {
-                            Ok(_) => continue 'decoy_loop,  // if decoy is peptide, continue with next iteration
-                            Err(err) => match err {
-                                QueryError::NoMatch => (),  // if no match is found continue with this decoy
-                                _ => panic!("proteomic::utility::decoy_generator.generate_decoys() could not check if decoy is peptide: {}", err)
-                            }
+                        decoy_counter_ptr.fetch_add(
+                            new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref()),
+                            Ordering::Relaxed
+                        );
+                        if decoy_counter_ptr.load(Ordering::Relaxed) == number_of_decoys_to_generate {
+                            break 'decoy_loop;
                         }
-                        if new_decoy.hits_mass_tolerance() {
-                            match base_decoy.create(&conn) {
-                                Ok(query_ok) => match query_ok {
-                                    QueryOk::Created => {
-                                        let last_count = decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
-                                        println!("count: {}", last_count + 1);
-                                    },
-                                    QueryOk::AlreadyExists => (),
-                                    _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in BaseDecoy.create(), so this panic shoud not be reached.")
-                                },
-                                Err(err) => println!("proteomic::utility::decoy_generator::generate() when second BaseDecoy.create(): {}", err)
-                            }
-                        }
-                        // vary peptide
                     }
                 });
             }
@@ -223,7 +208,7 @@ impl DecoyGenerator {
                     //     },
                     //     Err(query_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not create base decoy from shuffled target: {}", query_err)
                     // }
-                    decoys.insert(PlainDecoy::new(new_decoy.get_header().as_str(), new_decoy.get_aa_sequence().as_str(), &new_decoy.get_modified_weight()));
+                    decoys.insert(PlainDecoy::new(new_decoy.get_header().as_str(), new_decoy.get_aa_sequence().as_str(), &new_decoy.get_weight()));
                 }
             }
         }
