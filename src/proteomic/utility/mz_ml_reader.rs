@@ -29,41 +29,41 @@ impl MzMlReader {
             Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader.get_precursor_masses(): error when reading MzMl-File, original error: {:?}", err)
         };
         let mut buf = Vec::new();
-        let mut in_selected_ion: bool = false;
+        let mut inside_selected_ion: bool = false;
         let mut charge: Option<u8> = None;
         let mut mass_to_charge_ratio: Option<f64> = None;
         loop {
             match reader.read_event(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    match e.name() {
-                        b"selectedIon" => {
-                            println!("enter selectedIon");
-                            in_selected_ion = true;
-                        }
+                // entering tags: <tag (attr1="" attr2="" ...)>
+                Ok(Event::Start(ref tag)) => {
+                    match tag.name() {
+                        b"selectedIon" => inside_selected_ion = true,
                         _ => (),
                     }
                 },
-                Ok(Event::Empty(e)) => {
-                    match e.name() {
-                        b"cvParam" if in_selected_ion => {
-                            println!("enter cvParams");
-                            let attributes = Self::parse_event_attributes(&mut e.attributes());
+                // empty tags: <tag (attr1="" attr2="" ...)/>
+                Ok(Event::Empty(ref tag)) => {
+                    match tag.name() {
+                        // process cvParam only if it is inside SelectedIon
+                        b"cvParam" if inside_selected_ion => {
+                            let attributes = Self::parse_event_attributes(&mut tag.attributes());
                             if let Some(cv_param_type) = attributes.get("name") {
+                                // check which name the cvParam has
                                 match cv_param_type.as_str() {
                                     NAME_OF_MASS_TO_CHARGE_CV_PARAM => mass_to_charge_ratio = Some(Self::get_mass_to_charge_ratio_from_attributes(&attributes)),
                                     NAME_OF_CHARGE_CV_PARAM => charge = Some(Self::get_charge_from_attributes(&attributes)),
-                                    _ => ()
+                                    _ => () // other cvParams than "selected ion m/z" and "charge state" are uninteresting
                                 }
                             }
                         }
                         _ => ()
                     }
                 }
-                Ok(Event::End(ref e)) => {
-                    match e.name() {
+                // leaving of tags: </tag>
+                Ok(Event::End(ref tag)) => {
+                    match tag.name() {
                         b"selectedIon" => {
-                            println!("leave selectedIon");
-                            in_selected_ion = false;
+                            inside_selected_ion = false;
                             if charge.is_some() & mass_to_charge_ratio.is_some() {
                                 precursor_masses.push(
                                     mass::thomson_to_dalton(mass_to_charge_ratio.unwrap(), charge.unwrap())
