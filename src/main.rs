@@ -2,7 +2,7 @@ extern crate clap;
 extern crate num_cpus;
 extern crate postgres;
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 
 use clap::{Arg, App, SubCommand};
 
@@ -11,12 +11,14 @@ use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::decoy_generator::DecoyGenerator;
+use proteomic::utility::mz_ml_reader::MzMlReader;
 
 use proteomic::models::enzyms::trypsin::Trypsin;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::decoys::decoy::PlainDecoy;
 use proteomic::models::amino_acids::modification::Modification;
+use proteomic::models::amino_acids::amino_acid::AminoAcid;
 
 
 fn run_digestion(digest_cli_args: &clap::ArgMatches) {
@@ -174,11 +176,11 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         Some(modification_csv_file) => modification_csv_file.to_owned(),
         None => String::new()
     };
-    let max_modifications_per_decoy: i32 = match decoy_generation_cli_args.value_of("MAX_MODIFICATION_PER_DECOY") {
+    let max_modifications_per_decoy: u8 = match decoy_generation_cli_args.value_of("MAX_MODIFICATION_PER_DECOY") {
         Some(number_string) => {
-            match number_string.to_owned().parse::<i32>() {
+            match number_string.to_owned().parse::<u8>() {
                 Ok(number) => number,
-                Err(_) => panic!("ERROR [decoy-generation]: could not cast max-modification-per-decoy to integer")
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast max-modification-per-decoy to (unsigned) integer (8 bit)")
             }
         },
         None => 0
@@ -210,14 +212,9 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         },
         None => 5
     };
-    let weight: f64 = match decoy_generation_cli_args.value_of("WEIGHT") {
-        Some(number_string) => {
-            match number_string.to_owned().parse::<f64>() {
-                Ok(number) => number,
-                Err(_) => panic!("ERROR [decoy-generation]: could not cast weight to integer")
-            }
-        },
-        None => panic!("you must provide a weight")
+    let mz_ml_file: &str = match decoy_generation_cli_args.value_of("MZ_ML_FILE") {
+        Some(mz_ml_file) => mz_ml_file,
+        None => panic!("you must provide a MzMl-file")
     };
     let cpu_thread_count: usize = num_cpus::get();
     let thread_count: usize = match decoy_generation_cli_args.value_of("THREAD_COUNT") {
@@ -243,12 +240,9 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             1
         }
     };
-    let conn = DatabaseConnection::get_database_connection();
+    // prepare modifications
     Modification::make_sure_dummy_modification_exists();
     let mods = Modification::create_from_csv_file(&modification_csv_file);
-    for modification in mods.iter() {
-        println!("{}", modification.to_string());
-    }
     let mut fixed_modifications_map: HashMap<char, Modification> = HashMap::new();
     let mut variable_modifications_map: HashMap<char, Modification> = HashMap::new();
     for modification in mods.iter() {
@@ -258,21 +252,29 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
         }
     }
-    let generator: DecoyGenerator = DecoyGenerator::new(weight, upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
-    let target_count = match Peptide::count_where(&conn, "weight BETWEEN $1 AND $2", &[&generator.get_lower_weight_limit(), &generator.get_upper_weight_limit()]) {
-        Ok(count) => count,
-        Err(err) => panic!("main::run_decoy_generation() could not gether target count: {}", err)
-    };
-    let decoy_count = match PlainDecoy::count_where_mass_tolerance(&conn, generator.get_lower_weight_limit(), generator.get_upper_weight_limit()) {
-        Ok(count) => count,
-        Err(err) => panic!("main::run_decoy_generation() could not gether decoy count: {}", err)
-    };
-    let mut number_of_decoys_to_generate: i64 = (target_count * number_of_decoys_per_target) - decoy_count;
-    if number_of_decoys_to_generate < 0 {
-        number_of_decoys_to_generate = 0;
+    let mz_ml_reader = MzMlReader::new(mz_ml_file);
+    let precursor_masses: Vec<f64> = *mz_ml_reader.get_precursor_masses();
+    let conn = DatabaseConnection::get_database_connection();
+    for precursor_mass in precursor_masses {
+        let generator: DecoyGenerator = DecoyGenerator::new(precursor_mass, upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
+        let targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2", &[&generator.get_lower_weight_limit(), &generator.get_upper_weight_limit()]) {
+            Ok(targets) => targets,
+            Err(err) => panic!("main::run_decoy_generation() could not gether target count: {}", err)
+        };
+        println!("found {} targets", targets.len());
+        let decoys: HashSet<PlainDecoy> = *generator.vary_targets(&targets);
+        println!("created {} decoys by shuffling", decoys.len());
+        let decoy_count = match PlainDecoy::count_where_mass_tolerance(&conn, generator.get_lower_weight_limit(), generator.get_upper_weight_limit()) {
+            Ok(count) => count,
+            Err(err) => panic!("main::run_decoy_generation() could not gether decoy count: {}", err)
+        };
+        let mut number_of_decoys_to_generate: i64 = (targets.len() as i64 * number_of_decoys_per_target) - decoy_count;
+        if number_of_decoys_to_generate < 0 {
+            number_of_decoys_to_generate = 0;
+        }
+        generator.generate_decoys(number_of_decoys_to_generate as usize);
+        break;
     }
-    generator.generate_decoys(number_of_decoys_to_generate as usize);
-
 }
 
 fn main() {
@@ -379,12 +381,11 @@ fn main() {
             .help("Integer, Unit: ppm, Default: 5")
         )
         .arg(
-            Arg::with_name("WEIGHT")
-            .short("w")
-            .long("upper-mass-tolerance")
-            .value_name("UPPER_MASS_TOLERANCE")
+            Arg::with_name("MZ_ML_FILE")
+            .short("z")
+            .long("mz-ml-file")
+            .value_name("MZ_ML_FILE")
             .takes_value(true)
-            .help("Float, Unit: Dalton")
         )
         .arg(
             Arg::with_name("THREAD_COUNT")
@@ -404,3 +405,4 @@ fn main() {
         run_decoy_generation(matches);
     }
 }
+
