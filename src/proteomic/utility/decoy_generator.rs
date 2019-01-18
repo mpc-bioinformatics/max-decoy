@@ -3,23 +3,18 @@ extern crate threadpool;
 
 
 use std::collections::{HashSet, HashMap};
-use std::sync::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
 
 use self::rand::seq::SliceRandom;
 use self::threadpool::ThreadPool;
 
 use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
-use proteomic::utility::combinations::n_choose_k::NChooseK;
-// use proteomic::utility::mass::NeutralLoss;
 use proteomic::models::peptide::Peptide;
-use proteomic::models::persistable::{Persistable, QueryOk, QueryError};
+use proteomic::models::persistable::{Persistable, QueryError};
 use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
-use proteomic::models::decoys::new_decoy::{NewDecoy, NewDecoyError};
-use proteomic::models::decoys::base_decoy::BaseDecoy;
+use proteomic::models::decoys::new_decoy::NewDecoy;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::amino_acids::modification::Modification;
 
@@ -37,10 +32,10 @@ pub struct DecoyGenerator {
 }
 
 impl DecoyGenerator {
-    pub fn new(weight: f64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
+    pub fn new(weight: i64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
-            upper_weight_limit: mass::convert_mass_to_int(weight + (weight / 1000000.0 * upper_mass_limit_ppm as f64)),
-            lower_weight_limit: mass::convert_mass_to_int(weight - (weight / 1000000.0 * lower_mass_limit_ppm as f64)),
+            upper_weight_limit: weight + ((weight as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64),
+            lower_weight_limit: weight - ((weight as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
             thread_count: thread_count,
             decoy_counter: Arc::new(AtomicUsize::new(0)),
             max_modifications_per_decoy: max_modifications_per_decoy,
