@@ -2,7 +2,7 @@ extern crate rand;
 extern crate threadpool;
 
 
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -87,98 +87,92 @@ impl DecoyGenerator {
         return Box::new(amino_acids_and_modification_tupels);
     }
 
-    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) {
+    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) -> usize {
         println!(
             "Need to build {} decoys with weight {} to {}",
             number_of_decoys_to_generate,
             mass::convert_mass_to_float(self.lower_weight_limit),
             mass::convert_mass_to_float(self.upper_weight_limit)
         );
-        if number_of_decoys_to_generate > 0 {
-            // create threadpoll
-            let thread_pool = ThreadPool::new(self.thread_count);
-            // loop for starting threads
-            let start_time: f64 = time::precise_time_s();
-            for _ in 0..self.thread_count {
-                // create copies of thread safe pointer of DecoyGenerator which can be move into thread
-                let decoy_counter_ptr = self.decoy_counter.clone();
-                let fixed_modification_map_ptr = self.fixed_modification_map.clone();
-                let variable_modification_map_ptr = self.variable_modification_map.clone();
-                let one_amino_acid_substitute_map_ptr = self.one_amino_acid_substitute_map.clone();
-                // copy primitive attributes of DecoyGenerator which can be moved into thread
-                let upper_weight_limit = self.upper_weight_limit;
-                let lower_weight_limit = self.lower_weight_limit;
-                let max_modifications_per_decoy = self.max_modifications_per_decoy;
-                // start thread
-                thread_pool.execute(move||{
-                    let conn: postgres::Connection = DatabaseConnection::get_database_connection();
-                    // create random number generator
-                    let mut rng = rand::thread_rng();
-                    // get haviest and lightest amino acids
-                    let haviest_amino_acid: AminoAcid = AminoAcid::get_haviest();
-                    let haviest_amino_acid_weight_with_modification: i64 = match fixed_modification_map_ptr.get(&haviest_amino_acid.get_one_letter_code()){
-                        Some(ref modification) => modification.get_mono_mass() + haviest_amino_acid.get_mono_mass(),
-                        None => haviest_amino_acid.get_mono_mass()
-                    };
-                    // let lightest_amino_acid = AminoAcid::get_lightest();
-                    // endless loop with label 'decoy_loop
-                    'decoy_loop: loop {
-                        // create new empty decoy
-                        let mut new_decoy: NewDecoy = NewDecoy::new(lower_weight_limit, upper_weight_limit);
-                        // get array of fitting amino acids
-                        //let distribution_array = *Self::generate_amino_acid_distribution_array();
-                        // repeat until new_decoy's weight is smaller than the haviest amino acid.
-                        while new_decoy.get_distance_to_mass_tolerance() >= haviest_amino_acid_weight_with_modification {
-                            // pick amino acids one letter code at index
-                            //let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
-                            let aa_one_letter_code: char = *AMINO_ACIDS_FOR_DECOY_GENERATION.choose(&mut rng).unwrap();
-                            // one letter code to amino acid
-                            let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                            let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
-                                Some(ref modification) => Some((*modification).clone()),
-                                None => None
-                            };
-                            new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
-                            //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
-                        }
-                        let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
-                        while still_fitting_amino_acids.len() > 0 {
-                            // pick amino acids one letter code at index
-                            let aa_one_letter_code: char = *still_fitting_amino_acids.choose(&mut rng).unwrap();
-                            // one letter code to amino acid
-                            let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                            let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
-                                Some(ref modification) => Some((*modification).clone()),
-                                None => None
-                            };
-                            match new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option) {
-                                Ok(_) => (),
-                                Err(_) => ()
-                            }
-                            still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
-                            //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
-                        }
-                        decoy_counter_ptr.fetch_add(
-                            new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref()),
-                            Ordering::Relaxed
-                        );
-                        if decoy_counter_ptr.load(Ordering::Relaxed) == number_of_decoys_to_generate {
-                            break 'decoy_loop;
-                        }
+        // create threadpoll
+        let thread_pool = ThreadPool::new(self.thread_count);
+        // loop for starting threads
+        for _ in 0..self.thread_count {
+            // create copies of thread safe pointer of DecoyGenerator which can be move into thread
+            let decoy_counter_ptr = self.decoy_counter.clone();
+            let fixed_modification_map_ptr = self.fixed_modification_map.clone();
+            let variable_modification_map_ptr = self.variable_modification_map.clone();
+            let one_amino_acid_substitute_map_ptr = self.one_amino_acid_substitute_map.clone();
+            // copy primitive attributes of DecoyGenerator which can be moved into thread
+            let upper_weight_limit = self.upper_weight_limit;
+            let lower_weight_limit = self.lower_weight_limit;
+            let max_modifications_per_decoy = self.max_modifications_per_decoy;
+            // start thread
+            thread_pool.execute(move||{
+                let conn: postgres::Connection = DatabaseConnection::get_database_connection();
+                // create random number generator
+                let mut rng = rand::thread_rng();
+                // get haviest and lightest amino acids
+                let haviest_amino_acid: AminoAcid = AminoAcid::get_haviest();
+                let haviest_amino_acid_weight_with_modification: i64 = match fixed_modification_map_ptr.get(&haviest_amino_acid.get_one_letter_code()){
+                    Some(ref modification) => modification.get_mono_mass() + haviest_amino_acid.get_mono_mass(),
+                    None => haviest_amino_acid.get_mono_mass()
+                };
+                // let lightest_amino_acid = AminoAcid::get_lightest();
+                // endless loop with label 'decoy_loop
+                'decoy_loop: loop {
+                    // create new empty decoy
+                    let mut new_decoy: NewDecoy = NewDecoy::new(lower_weight_limit, upper_weight_limit);
+                    // get array of fitting amino acids
+                    //let distribution_array = *Self::generate_amino_acid_distribution_array();
+                    // repeat until new_decoy's weight is smaller than the haviest amino acid.
+                    while new_decoy.get_distance_to_mass_tolerance() >= haviest_amino_acid_weight_with_modification {
+                        // pick amino acids one letter code at index
+                        //let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
+                        let aa_one_letter_code: char = *AMINO_ACIDS_FOR_DECOY_GENERATION.choose(&mut rng).unwrap();
+                        // one letter code to amino acid
+                        let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
+                        let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
+                            Some(ref modification) => Some((*modification).clone()),
+                            None => None
+                        };
+                        new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
+                        //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                     }
-                });
-            }
-            thread_pool.join();
-            let stop_time: f64 = time::precise_time_s();
-            println!("generate {} decoys in {} s", self.decoy_counter.load(Ordering::Relaxed), stop_time - start_time);
-        } else {
-            println!("There are plenty of decoys within the given range. nothing to do here.")
+                    let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
+                    while still_fitting_amino_acids.len() > 0 {
+                        // pick amino acids one letter code at index
+                        let aa_one_letter_code: char = *still_fitting_amino_acids.choose(&mut rng).unwrap();
+                        // one letter code to amino acid
+                        let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
+                        let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
+                            Some(ref modification) => Some((*modification).clone()),
+                            None => None
+                        };
+                        match new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option) {
+                            Ok(_) => (),
+                            Err(_) => ()
+                        }
+                        still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
+                        //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
+                    }
+                    decoy_counter_ptr.fetch_add(
+                        new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref()),
+                        Ordering::Relaxed
+                    );
+                    if decoy_counter_ptr.load(Ordering::Relaxed) == number_of_decoys_to_generate {
+                        break 'decoy_loop;
+                    }
+                }
+            });
         }
+        thread_pool.join();
+        return self.decoy_counter.load(Ordering::Relaxed);
     }
 
-    pub fn vary_targets(&self, targets: &Vec<Peptide>) -> Box<HashSet<PlainDecoy>> {
+    pub fn vary_targets(&self, targets: &Vec<Peptide>, number_of_decoys_to_generate: usize) -> usize {
+        let mut decoy_counter = 0;
         let conn: postgres::Connection = DatabaseConnection::get_database_connection();
-        let mut decoys: HashSet<PlainDecoy> = HashSet::new();
         let mut rng = rand::thread_rng();
         'targets_loop: for target in targets.iter() {
             let mut aa_sequence: Vec<char> = target.get_aa_sequence().chars().collect();
@@ -193,21 +187,12 @@ impl DecoyGenerator {
                     }
                 }
                 let mut new_decoy: NewDecoy = NewDecoy::from_string(aa_sequence_as_string.as_str(), self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
-                // let mut base_decoys = new_decoy.as_base_decoy();
-                if new_decoy.hits_mass_tolerance() {
-                    // match base_decoys.create(&conn) {
-                    //     Ok(query_ok) => match query_ok {
-                    //         QueryOk::Created => (),
-                    //         QueryOk::AlreadyExists => (),
-                    //         _ => ()
-                    //     },
-                    //     Err(query_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not create base decoy from shuffled target: {}", query_err)
-                    // }
-                    decoys.insert(PlainDecoy::new(new_decoy.get_header().as_str(), new_decoy.get_aa_sequence().as_str(), &new_decoy.get_weight()));
-                }
+                //decoy_counter += new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, &self.one_amino_acid_substitute_map, &self.fixed_modification_map, self.max_modifications_per_decoy, &self.variable_modification_map);
+                if new_decoy.create(&conn) { decoy_counter += 1 };
+                if decoy_counter == number_of_decoys_to_generate { break 'shuffle_loop; }
             }
         }
-        return Box::new(decoys);
+        return decoy_counter;
     }
 
     pub fn vary_new_decoy(&self, new_decoy: &mut NewDecoy) {
