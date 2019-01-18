@@ -398,12 +398,14 @@ impl NewDecoy {
     pub fn swap_amino_acids_to_hit_mass_tolerance(&mut self, conn: &postgres::Connection, interchange_map: &HashMap<char, HashMap<char, i64>>, fix_modifications_map: &HashMap<char, Modification>, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> usize {
         let mut created_counter: usize = 0;
         let mut tries: u16 = 0;
+        if self.hits_mass_tolerance() {
+            if self.create(conn) { created_counter += 1 }
+        }
         'tries: loop {
             'sequence: for idx in 0..self.aa_sequence.len() {
                 let increase_weight: bool = match self.get_distance_to_mass_tolerance() {
                     dist if dist > 0 => true,
-                    dist if dist < 0 => false,
-                    _ => return 1                 // end swap_amino_acids_to_hit_mass_tolerance() here because self already hits mass tolerance
+                    _ => false
                 };
                 let aa_one_letter_code = self.get_amino_acid_at(idx);
                 if let Some(ref replacements) = interchange_map.get(&aa_one_letter_code) {
