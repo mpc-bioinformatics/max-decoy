@@ -1,6 +1,8 @@
 extern crate clap;
 extern crate num_cpus;
 extern crate postgres;
+extern crate quick_xml;
+extern crate sha1;
 
 use std::collections::{HashSet, HashMap};
 
@@ -11,14 +13,15 @@ use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::decoy_generator::DecoyGenerator;
-use proteomic::utility::mz_ml_reader::MzMlReader;
+use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
+use proteomic::utility::mz_ml::spectrum::Spectrum;
+use proteomic::utility::mz_ml::chromatogram::Chromatrogram;
 
 use proteomic::models::enzyms::trypsin::Trypsin;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::decoys::decoy::PlainDecoy;
 use proteomic::models::amino_acids::modification::Modification;
-use proteomic::models::amino_acids::amino_acid::AminoAcid;
 
 
 fn run_digestion(digest_cli_args: &clap::ArgMatches) {
@@ -253,10 +256,13 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         }
     }
     let mz_ml_reader = MzMlReader::new(mz_ml_file);
-    let precursor_masses: Vec<f64> = *mz_ml_reader.get_precursor_masses();
+    let chromatograms: Vec<Chromatrogram> = *mz_ml_reader.get_chromatograms();
+    let content_before_spectrum_list = mz_ml_reader.get_content_before_spectrum_list();
+    let spectra: Vec<Spectrum> = *mz_ml_reader.get_ms_two_spectra();
     let conn = DatabaseConnection::get_database_connection();
-    for precursor_mass in precursor_masses {
-        let generator: DecoyGenerator = DecoyGenerator::new(precursor_mass, upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
+    for spectrum in spectra {
+        spectrum.to_mz_ml(content_before_spectrum_list.as_str(), &chromatograms);
+        let generator: DecoyGenerator = DecoyGenerator::new(*spectrum.get_precurso_mass(), upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
         let targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2", &[&generator.get_lower_weight_limit(), &generator.get_upper_weight_limit()]) {
             Ok(targets) => targets,
             Err(err) => panic!("main::run_decoy_generation() could not gether target count: {}", err)
@@ -273,7 +279,6 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             number_of_decoys_to_generate = 0;
         }
         generator.generate_decoys(number_of_decoys_to_generate as usize);
-        break;
     }
 }
 
