@@ -485,7 +485,7 @@ impl NewDecoy {
         return created_counter;
     }
 
-    fn create(&self, conn: &postgres::Connection) -> bool {
+    pub fn create(&self, conn: &postgres::Connection) -> bool {
         let mut result = false;
         if self.hits_mass_tolerance() {
             let mut base_decoy: BaseDecoy = self.as_base_decoy();
