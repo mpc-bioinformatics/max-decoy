@@ -25,8 +25,12 @@ impl BaseDecoy {
         }
     }
 
-    // row must contain [header, aa_sequence, weight] in this order
-    fn prepared_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
+    /// Creates PlainDecoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `row` - row must contain [header, aa_sequence, weight] in this order
+    fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
         return PlainDecoy::new(
             format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
             &row.get::<usize, String>(0), 
@@ -34,15 +38,23 @@ impl BaseDecoy {
         );
     }
 
-    // this function works like find_where() but to save time it will return PlainDecoy instead of loading all modifications first
-    pub fn find_where_as_prepared_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<PlainDecoy>, QueryError> {
+    /// Works like find_where() but to save resources it does not create ModifiedDecoys with all Modification first but
+    /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a PlainDecoy.
+    /// Make sure that the number of $x used in `condition` are the same as elements in `values`.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `conn` - Connection to Postgres
+    /// * `condition` - WHERE-condition e.g. modified_decoy.weight BETWEEN $1 AND $2
+    /// * `values` - e.g. [1000, 2000] for conditions example
+    pub fn find_where_as_plain_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<PlainDecoy>, QueryError> {
         let select_query: String = format!("SELECT header, aa_sequence, weight FROM {} WHERE {};", Self::get_table_name(), conditions);
         println!("{}", select_query);
         match conn.query(select_query.as_str(), values) {
             Ok(ref rows) => {
                 let mut records: Vec<PlainDecoy> = Vec::new();
                 for row in rows {
-                    records.push(Self::prepared_decoy_from_sql_row(&row));
+                    records.push(Self::plain_decoy_from_sql_row(&row));
                 }
                 return Ok(records);
             },

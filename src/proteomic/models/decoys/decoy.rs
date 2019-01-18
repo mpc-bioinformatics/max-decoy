@@ -57,12 +57,12 @@ impl PlainDecoy {
     }
 
     pub fn where_mass_tolerance(conn: &postgres::Connection, lower_mass_limit: i64, upper_mass_limit: i64) -> Result<Vec<Self>, QueryError> {
-        let mut decoys: Vec<Self> = match BaseDecoy::find_where_as_prepared_decoys(conn, "weight BETWEEN $1 AND $2", &[&lower_mass_limit, &upper_mass_limit]) {
+        let mut decoys: Vec<Self> = match BaseDecoy::find_where_as_plain_decoys(conn, "weight BETWEEN $1 AND $2", &[&lower_mass_limit, &upper_mass_limit]) {
             Ok(decoys) => decoys,
             Err(err) => return Err(err)
         };
         let condition: String = format!("{}.weight BETWEEN $1 AND $2", ModifiedDecoy::get_table_name());
-        let mut decoys_from_modified_decoys: Vec<Self> = match ModifiedDecoy::find_where_as_prepared_decoys(conn, condition.as_str(), &[&lower_mass_limit, &upper_mass_limit]) {
+        let mut decoys_from_modified_decoys: Vec<Self> = match ModifiedDecoy::find_where_as_plain_decoys(conn, condition.as_str(), &[&lower_mass_limit, &upper_mass_limit]) {
             Ok(decoys) => decoys,
             Err(err) => return Err(err)
         };
