@@ -167,37 +167,6 @@ impl Modification {
         }
         return Box::new(modifications);
     }
-
-    pub fn get_dummy_modification() -> Self {
-        return Self {
-            id: DUMMY_MODIFICATION_VALUES.0,
-            accession: DUMMY_MODIFICATION_VALUES.1.to_owned(),
-            name: DUMMY_MODIFICATION_VALUES.2.to_owned(),
-            position_as_int: DUMMY_MODIFICATION_VALUES.3.as_small_int(),
-            position: DUMMY_MODIFICATION_VALUES.3,
-            is_fix: DUMMY_MODIFICATION_VALUES.4,
-            amino_acid_one_letter_code: DUMMY_MODIFICATION_VALUES.5.to_string(),
-            mono_mass: DUMMY_MODIFICATION_VALUES.6
-        };
-    }
-
-    pub fn make_sure_dummy_modification_exists() {
-        let dummy_modification = Self::get_dummy_modification();
-        let conn = DatabaseConnection::get_database_connection();
-        let mut query: String = format!("SELECT EXISTS (SELECT id FROM {} WHERE id = $1)", Self::get_table_name());
-        let dummmy_modification_exists = match conn.query(query.as_str(), &[&dummy_modification.get_primary_key()]) {
-            Ok(ref rows) if rows.len() > 0 => rows.get(0).get::<usize, bool>(0),
-            Ok(_rows) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: Could not check if dummy-modification exists. Got not return from sql server."),
-            Err(err) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: {}", handle_postgres_error(&err))
-        };
-        query = format!("INSERT INTO {} (id, accession, name, position, is_fix, amino_acid_one_letter_code, mono_mass) VALUES ($1, $2, $3, $4, $5, $6, $7)", Self::get_table_name());
-        if !dummmy_modification_exists {
-            match conn.execute(query.as_str(), &[&dummy_modification.get_primary_key(), &dummy_modification.get_accession(), &dummy_modification.get_name(), &dummy_modification.get_position().as_small_int(), &dummy_modification.is_fix(), &dummy_modification.get_amino_acid_one_letter_code().to_string(), &dummy_modification.get_mono_mass()]) {
-                Ok(_) => (),
-                Err(err) => panic!("Panic [proteomic::models::amino_acid::modification::Modification::make_sure_dummy_modification_exists()]: {}", handle_postgres_error(&err))
-            }
-        }
-    }
 }
 
 impl Clone for Modification {

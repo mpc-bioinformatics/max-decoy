@@ -194,11 +194,21 @@ impl NewDecoy {
     }
 
     pub fn as_modified_decoy(&self, base_decoy: &BaseDecoy) -> ModifiedDecoy {
+        let mut modifications: Vec<Modification> = Vec::new();
+        if let Some(ref modification) = self.n_terminus_modification {
+            modifications.push(modification.clone());
+        }
+        for modification_option in self.modifications.iter() {
+            if let Some(ref modification) = modification_option {
+                modifications.push(modification.clone());
+            } 
+        }
+        if let Some(ref modification) = self.c_terminus_modification {
+            modifications.push(modification.clone());
+        }
         return ModifiedDecoy::new(
             base_decoy,
-            self.c_terminus_modification.clone(),
-            self.n_terminus_modification.clone(),
-            &self.modifications,
+            &modifications,
             self.weight
         );
     }

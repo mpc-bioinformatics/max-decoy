@@ -61,10 +61,10 @@ CREATE TABLE IF NOT EXISTS base_decoys (
 CREATE TABLE IF NOT EXISTS modified_decoys (
     id BIGSERIAL PRIMARY KEY,
     base_decoy_id BIGINT REFERENCES base_decoys(id) NOT NULL,
-    c_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id) NOT NULL,
-    n_terminus_modification_id BIGINT REFERENCES amino_acid_modifications(id) NOT NULL,
     modification_ids BIGINT ARRAY NOT NULL,
     weight BIGINT NOT null,
-    header_addition TEXT NOT NULL,
-    UNIQUE (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight)
+    modification_summary TEXT NOT NULL,
+    UNIQUE (base_decoy_id, modification_summary)
 );
+
+CREATE INDEX modified_decoy_modification_ids_idx ON modified_decoys (modification_ids);

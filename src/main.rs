@@ -1,6 +1,7 @@
 extern crate clap;
 extern crate num_cpus;
 extern crate postgres;
+extern crate postgres_array;
 extern crate quick_xml;
 extern crate sha1;
 
@@ -244,7 +245,6 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         }
     };
     // prepare modifications
-    Modification::make_sure_dummy_modification_exists();
     let mods = Modification::create_from_csv_file(&modification_csv_file);
     let mut fixed_modifications_map: HashMap<char, Modification> = HashMap::new();
     let mut variable_modifications_map: HashMap<char, Modification> = HashMap::new();
@@ -279,6 +279,7 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             number_of_decoys_to_generate = 0;
         }
         generator.generate_decoys(number_of_decoys_to_generate as usize);
+        break;
     }
 }
 
