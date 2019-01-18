@@ -60,7 +60,6 @@ impl MzMlReader {
                             inside_spectrum = false;
                             let spectrum: String = spectrum_lines.join("\n");
                             if Self::is_ms_two_spectrum(spectrum.as_str()) {
-                                println!("create spectrum {}", spectra.len() + 1);
                                 spectra.push(Spectrum::new(spectrum.as_str(), indent_level));
                             }
                             spectrum_lines.clear();
