@@ -268,8 +268,6 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             Err(err) => panic!("main::run_decoy_generation() could not gether target count: {}", err)
         };
         println!("found {} targets", targets.len());
-        let decoys: HashSet<PlainDecoy> = *generator.vary_targets(&targets);
-        println!("created {} decoys by shuffling", decoys.len());
         let decoy_count = match PlainDecoy::count_where_mass_tolerance(&conn, generator.get_lower_weight_limit(), generator.get_upper_weight_limit()) {
             Ok(count) => count,
             Err(err) => panic!("main::run_decoy_generation() could not gether decoy count: {}", err)
@@ -278,7 +276,21 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         if number_of_decoys_to_generate < 0 {
             number_of_decoys_to_generate = 0;
         }
-        generator.generate_decoys(number_of_decoys_to_generate as usize);
+        let number_of_decoys_to_generate_freeze = number_of_decoys_to_generate;
+        println!("need to generate {} decoys", number_of_decoys_to_generate);
+        let start_time: f64 = time::precise_time_s();
+        if number_of_decoys_to_generate > 0 {
+            number_of_decoys_to_generate -= generator.vary_targets(&targets, number_of_decoys_to_generate as usize) as i64;
+            println!("still {} decoys needed after shuffling and varying targets", number_of_decoys_to_generate);
+        }
+        if number_of_decoys_to_generate > 0 {
+            number_of_decoys_to_generate -= generator.generate_decoys(number_of_decoys_to_generate as usize) as i64;
+        }
+        let stop_time: f64 = time::precise_time_s();
+        println!("generate {} decoys in {} s", number_of_decoys_to_generate_freeze, stop_time - start_time);
+        // get decoys
+        // write to fasta files
+        // call comet
         break;
     }
 }
