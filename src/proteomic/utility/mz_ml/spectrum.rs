@@ -153,10 +153,6 @@ impl Spectrum {
         return self.indent_level;
     }
 
-    pub fn get_file_path(&self) -> String {
-        return format!("{}.mzML", self.get_title());
-    }
-
     pub fn to_string(&self) -> String {
         return format!(
             "proteomic::utility::mz_ml::spectrum::Spectrum\n\ttitle => {}\n\tprecursor_mass => {}\n\txml => {}",
@@ -167,17 +163,17 @@ impl Spectrum {
     }
 
     /// Creates mzML-file with this spectrum only.
-    /// 
+    ///
     /// # Arguments
     ///
     /// * `content_before_spectrum_list` - Content from original mzML-file, before spectrumListTag.
     /// * `chromatograms - Chromatograms of original mzMl-file, used to create index list.
-    pub fn to_mz_ml(&self, content_before_spectrum_list: &str, chromatograms: &Vec<Chromatrogram>) {
+    pub fn to_mz_ml(&self, content_before_spectrum_list: &str, chromatograms: &Vec<Chromatrogram>, destination_folder: &str, file_suffix: &str) {
         // create index list for mzML with open indexList-tag
         let mut index_list = format!("{}<indexList count=\"2\">\n",mz_ml::indent(1));
         // open index-tag for spectrums
         index_list.push_str(format!("{}<index name=\"spectrum\">\n", mz_ml::indent(2)).as_str());
-        // begin with mz_ml_content 
+        // begin with xml
         let mut mz_ml_content: String = content_before_spectrum_list.to_owned();
         mz_ml_content.push_str("\n");
         // open spectrumList-tag
@@ -234,8 +230,15 @@ impl Spectrum {
         mz_ml_content.push_str(format!("{}</fileChecksum>\n", sha1_hash.digest().to_string()).as_str());
         // close indexedmzML-tag
         mz_ml_content.push_str("</indexedmzML>");
+        // create mzML-file-path
+        let mut mz_ml_file_path = format!("{}/{}", destination_folder, self.get_title());
+        if file_suffix.len() > 0 {
+            mz_ml_file_path.push_str("_");
+            mz_ml_file_path.push_str(file_suffix);
+        }
+        mz_ml_file_path.push_str(".mzML");
         // open and write file
-        let mut file = match OpenOptions::new().read(true).write(true).create(true).open(self.get_file_path()) {
+        let mut file = match OpenOptions::new().read(true).write(true).create(true).open(mz_ml_file_path) {
             Ok(file) => file,
             Err(err) => panic!("proteomic::utility::mz_ml::spectrum::Spectrum.to_mz_ml(): Coul not opening mzML-file: {}", err)
         };
