@@ -256,12 +256,9 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         }
     }
     let mz_ml_reader = MzMlReader::new(mz_ml_file);
-    let chromatograms: Vec<Chromatrogram> = *mz_ml_reader.get_chromatograms();
-    let content_before_spectrum_list = mz_ml_reader.get_content_before_spectrum_list();
     let spectra: Vec<Spectrum> = *mz_ml_reader.get_ms_two_spectra();
     let conn = DatabaseConnection::get_database_connection();
     for spectrum in spectra {
-        spectrum.to_mz_ml(content_before_spectrum_list.as_str(), &chromatograms);
         let generator: DecoyGenerator = DecoyGenerator::new(*spectrum.get_precurso_mass(), upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
         let targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2", &[&generator.get_lower_weight_limit(), &generator.get_upper_weight_limit()]) {
             Ok(targets) => targets,
@@ -293,6 +290,33 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         // call comet
         break;
     }
+}
+
+/// Splits up the given mzML-file into mzML-files containing a single MS2-spectrum and writes them into the given destination folder
+fn run_spectrum_splitup(mz_ml_splitup_cli_args: &clap::ArgMatches) {
+    // paesing cli arguments
+    let mz_ml_file: &str = match mz_ml_splitup_cli_args.value_of("MZ_ML_FILE") {
+        Some(mz_ml_file) => mz_ml_file,
+        None => panic!("you must provide a MzMl-file")
+    };
+    let destination_folder: &str = match mz_ml_splitup_cli_args.value_of("DESTINATION_FOLDER") {
+        Some(destination_folder) => destination_folder,
+        None => panic!("you must provide a destination folder")
+    };
+    let file_suffix: &str = match mz_ml_splitup_cli_args.value_of("FILE_SUFFIX") {
+        Some(file_suffix) => file_suffix,
+        None => ""
+    };
+    let start_time: f64 = time::precise_time_s();
+    let mz_ml_reader = MzMlReader::new(mz_ml_file);
+    let chromatograms: Vec<Chromatrogram> = *mz_ml_reader.get_chromatograms();
+    let content_before_spectrum_list = mz_ml_reader.get_content_before_spectrum_list();
+    let spectra: Vec<Spectrum> = *mz_ml_reader.get_ms_two_spectra();
+    for spectrum in spectra.iter() {
+        spectrum.to_mz_ml(content_before_spectrum_list.as_str(), &chromatograms, destination_folder, file_suffix);
+    }
+    let stop_time: f64 = time::precise_time_s();
+    println!("found and write {} MS2-spectra in {} s", spectra.len(), stop_time - start_time);
 }
 
 fn main() {
@@ -413,14 +437,42 @@ fn main() {
             .takes_value(true)
         )
     )
+    .subcommand(
+        SubCommand::with_name("spectrum-splitup")
+        .arg(
+            Arg::with_name("MZ_ML_FILE")
+            .short("m")
+            .long("mz-ml-file")
+            .value_name("MZ_ML_FILE")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("DESTINATION_FOLDER")
+            .short("d")
+            .long("destination-folder")
+            .value_name("DESTINATION_FOLDER")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("FILE_SUFFIX")
+            .short("s")
+            .long("file-suffix")
+            .value_name("FILE_SUFFIX")
+            .takes_value(true)
+            .help("Helping identifying your mzML among others.")
+        )
+    )
     .get_matches();
 
 
-    if let Some(matches) = matches.subcommand_matches("digest") {
-        run_digestion(matches);
+    if let Some(cli_args) = matches.subcommand_matches("digest") {
+        run_digestion(cli_args);
     }
-    if let Some(matches) = matches.subcommand_matches("decoy-generation") {
-        run_decoy_generation(matches);
+    if let Some(cli_args) = matches.subcommand_matches("decoy-generation") {
+        run_decoy_generation(cli_args);
+    }
+    if let Some(cli_args) = matches.subcommand_matches("spectrum-splitup") {
+        run_spectrum_splitup(cli_args)
     }
 }
 
