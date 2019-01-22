@@ -30,6 +30,7 @@ impl MzMlReader {
         };
         let mut buf = Vec::new();
         let mut inside_spectrum: bool = false;
+        let mut inside_binary: bool = false;
         let mut indent_level = 0;
         let mut spectrum_writer = Writer::new(Cursor::new(Vec::new())); // chromatogram list
         loop {
@@ -39,26 +40,37 @@ impl MzMlReader {
                     match tag.name() {
                         b"spectrum" => {
                             inside_spectrum = true;
-                            Self::write_event(&mut spectrum_writer, &Event::Start(tag.to_owned()), indent_level);
+                            Self::write_event_with_indention_and_newline(&mut spectrum_writer, &Event::Start(tag.to_owned()), indent_level);
                         },
-                        _ if inside_spectrum => Self::write_event(&mut spectrum_writer, &Event::Start(tag.to_owned()), indent_level),
+                        b"binary" => {
+                            Self::write_indention(&mut spectrum_writer, indent_level);
+                            Self::write_event(&mut spectrum_writer, &Event::Start(tag.to_owned()));
+                            inside_binary = true;
+                        },
+                        _ if inside_spectrum => Self::write_event_with_indention_and_newline(&mut spectrum_writer, &Event::Start(tag.to_owned()), indent_level),
                         _ => (),
                     }
                     indent_level += 1;
                 },
                 // empty tags: <tag (attr1="" attr2="" ...)/>
                 Ok(Event::Empty(ref tag)) => {
-                    match tag.name() {
-                        _ if inside_spectrum => Self::write_event(&mut spectrum_writer, &Event::Empty(tag.to_owned()), indent_level),
-                        _ => ()
+                    if inside_spectrum {
+                        Self::write_event_with_indention_and_newline(&mut spectrum_writer, &Event::Empty(tag.to_owned()), indent_level);
                     }
-                }
+                },
+                // empty tags: <tag (attr1="" attr2="" ...)/>
+                Ok(Event::Text(ref tag)) => {
+                    if inside_spectrum & inside_binary {
+                        Self::write_event(&mut spectrum_writer, &Event::Text(tag.to_owned()));
+                    }
+                },
                 // leaving of tags: </tag>
                 Ok(Event::End(ref tag)) => {
                     indent_level -= 1;
                     match tag.name() {
                         b"spectrum" if inside_spectrum => {
-                            Self::write_event(&mut spectrum_writer, &Event::End(tag.to_owned()), indent_level);
+                            Self::write_indention(&mut spectrum_writer, indent_level);
+                            Self::write_event(&mut spectrum_writer, &Event::End(tag.to_owned()));
                             let spectrum_xml = match std::str::from_utf8(spectrum_writer.into_inner().into_inner().as_slice()) {
                                 Ok(string) => string.to_owned(),
                                 Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader.get_ms_two_spectra(): Error at std::str::from_utf8(): {}", err)
@@ -69,7 +81,12 @@ impl MzMlReader {
                             spectrum_writer = Writer::new(Cursor::new(Vec::new()));
                             inside_spectrum = false;
                         },
-                        _ if inside_spectrum => Self::write_event(&mut spectrum_writer, &Event::End(tag.to_owned()), indent_level),
+                        b"binary" => {
+                            inside_binary = false;
+                            Self::write_event(&mut spectrum_writer, &Event::End(tag.to_owned()));
+                            Self::write_new_line(&mut spectrum_writer)
+                        },
+                        _ if inside_spectrum => Self::write_event_with_indention_and_newline(&mut spectrum_writer, &Event::End(tag.to_owned()), indent_level),
                         _ => (),
                     }
                 },
@@ -97,18 +114,18 @@ impl MzMlReader {
                 Ok(Event::Start(ref tag)) => {
                     match tag.name() {
                         b"spectrumList" => break,
-                        _ => Self::write_event(&mut writer, &Event::Start(tag.to_owned()), indent_level)
+                        _ => Self::write_event_with_indention_and_newline(&mut writer, &Event::Start(tag.to_owned()), indent_level)
                     };
                     indent_level += 1;
                 },
                 // empty tags: <tag (attr1="" attr2="" ...)/>
-                Ok(Event::Empty(ref tag)) => Self::write_event(&mut writer, &Event::Empty(tag.to_owned()), indent_level),
+                Ok(Event::Empty(ref tag)) => Self::write_event_with_indention_and_newline(&mut writer, &Event::Empty(tag.to_owned()), indent_level),
                 // declaration tags: <?xml ... ?>
-                Ok(Event::Decl(ref tag)) => Self::write_event(&mut writer, &Event::Decl(tag.to_owned()), indent_level),
+                Ok(Event::Decl(ref tag)) => Self::write_event_with_indention_and_newline(&mut writer, &Event::Decl(tag.to_owned()), indent_level),
                 // leaving of tags: </tag>
                 Ok(Event::End(ref tag)) => {
                     indent_level -= 1;
-                    Self::write_event(&mut writer, &Event::End(tag.to_owned()), indent_level);
+                    Self::write_event_with_indention_and_newline(&mut writer, &Event::End(tag.to_owned()), indent_level);
                 },
                 Ok(Event::Eof) => break, // exits the loop when reaching end of file
                 Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
@@ -142,9 +159,9 @@ impl MzMlReader {
                     match tag.name() {
                         b"chromatogram" => {
                             inside_chromatogram = true;
-                            Self::write_event(&mut chromatogram_writer, &Event::Start(tag.to_owned()), indent_level);
+                            Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::Start(tag.to_owned()), indent_level);
                         },
-                        _ if inside_chromatogram => Self::write_event(&mut chromatogram_writer, &Event::Start(tag.to_owned()), indent_level),
+                        _ if inside_chromatogram => Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::Start(tag.to_owned()), indent_level),
                         _ => ()
                     }
                     indent_level += 1;
@@ -152,7 +169,7 @@ impl MzMlReader {
                 // empty tags: <tag (attr1="" attr2="" ...)/>
                 Ok(Event::Empty(ref tag)) => {
                     match tag.name() {
-                        _ if inside_chromatogram => Self::write_event(&mut chromatogram_writer, &Event::Empty(tag.to_owned()), indent_level),
+                        _ if inside_chromatogram => Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::Empty(tag.to_owned()), indent_level),
                         _ => ()
                     }
                 }
@@ -161,7 +178,7 @@ impl MzMlReader {
                     indent_level -= 1;
                     match tag.name() {
                         b"chromatogram" if inside_chromatogram => {
-                            Self::write_event(&mut chromatogram_writer, &Event::End(tag.to_owned()), indent_level);
+                            Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::End(tag.to_owned()), indent_level);
                             let chromatogram_xml = match std::str::from_utf8(chromatogram_writer.into_inner().into_inner().as_slice()) {
                                 Ok(string) => string.to_owned(),
                                 Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader.get_chromatograms(): Error at std::str::from_utf8(): {}", err)
@@ -171,7 +188,7 @@ impl MzMlReader {
                             inside_chromatogram = false;
                         },
                         b"chromatogramList" => break,
-                        _ if inside_chromatogram => Self::write_event(&mut chromatogram_writer, &Event::End(tag.to_owned()), indent_level),
+                        _ if inside_chromatogram => Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::End(tag.to_owned()), indent_level),
                         _ => ()
                     }
                 },
@@ -200,12 +217,16 @@ impl MzMlReader {
         }
     }
 
-    fn write_event(writer: &mut quick_xml::Writer<Cursor<Vec<u8>>>, event: &Event, indention_level: usize) {
-        Self::write_indention(writer, indention_level);
+    fn write_event(writer: &mut quick_xml::Writer<Cursor<Vec<u8>>>, event: &Event) {
         match writer.write_event(event) {
             Ok(_) => (),
             Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader::write_event(): {}", err)
         };
+    }
+
+    fn write_event_with_indention_and_newline(writer: &mut quick_xml::Writer<Cursor<Vec<u8>>>, event: &Event, indention_level: usize) {
+        Self::write_indention(writer, indention_level);
+        Self::write_event(writer, event);
         Self::write_new_line(writer);
     }
 
