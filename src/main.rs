@@ -4,6 +4,8 @@ extern crate postgres;
 extern crate postgres_array;
 extern crate quick_xml;
 extern crate sha1;
+extern crate rand;
+extern crate threadpool;
 
 use std::collections::HashMap;
 
@@ -18,10 +20,8 @@ use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
 
 use proteomic::models::enzyms::trypsin::Trypsin;
-use proteomic::models::persistable::Persistable;
-use proteomic::models::peptide::Peptide;
-use proteomic::models::decoys::decoy::PlainDecoy;
 use proteomic::models::amino_acids::modification::Modification;
+use proteomic::models::mass;
 
 
 fn run_digestion(digest_cli_args: &clap::ArgMatches) {
@@ -188,11 +188,11 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         },
         None => 0
     };
-    let number_of_decoys_per_target: i64 = match decoy_generation_cli_args.value_of("NUMBER_OF_DECOYS") {
+    let number_of_decoys: usize = match decoy_generation_cli_args.value_of("NUMBER_OF_DECOYS") {
         Some(number_string) => {
-            match number_string.to_owned().parse::<i64>() {
+            match number_string.to_owned().parse::<usize>() {
                 Ok(number) => number,
-                Err(_) => panic!("ERROR [decoy-generation]: could not cast number-of-decoys to integer")
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast number-of-decoys to unsigned integer")
             }
         },
         None => 1000
@@ -215,9 +215,14 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         },
         None => 5
     };
-    let mz_ml_file: &str = match decoy_generation_cli_args.value_of("MZ_ML_FILE") {
-        Some(mz_ml_file) => mz_ml_file,
-        None => panic!("you must provide a MzMl-file")
+    let precursor_mass: i64 = match decoy_generation_cli_args.value_of("PRECURSOR_MASS") {
+        Some(number_string) => {
+            match number_string.to_owned().parse::<f64>() {
+                Ok(number) => mass::convert_mass_to_int(number),
+                Err(_) => panic!("ERROR [decoy-generation]: could not cast upper-mass-tolerance to integer")
+            }
+        },
+        None => 5
     };
     let cpu_thread_count: usize = num_cpus::get();
     let thread_count: usize = match decoy_generation_cli_args.value_of("THREAD_COUNT") {
@@ -254,40 +259,53 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
         }
     }
-    let mz_ml_reader = MzMlReader::new(mz_ml_file);
-    let spectra: Vec<Spectrum> = *mz_ml_reader.get_ms_two_spectra();
-    let conn = DatabaseConnection::get_database_connection();
-    for spectrum in spectra {
-        let generator: DecoyGenerator = DecoyGenerator::new(*spectrum.get_precurso_mass(), upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
-        let targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2", &[&generator.get_lower_weight_limit(), &generator.get_upper_weight_limit()]) {
-            Ok(targets) => targets,
-            Err(err) => panic!("main::run_decoy_generation() could not gether target count: {}", err)
-        };
-        println!("found {} targets", targets.len());
-        let decoy_count = match PlainDecoy::count_where_mass_tolerance(&conn, generator.get_lower_weight_limit(), generator.get_upper_weight_limit()) {
-            Ok(count) => count,
-            Err(err) => panic!("main::run_decoy_generation() could not gether decoy count: {}", err)
-        };
-        let mut number_of_decoys_to_generate: i64 = (targets.len() as i64 * number_of_decoys_per_target) - decoy_count;
-        if number_of_decoys_to_generate < 0 {
-            number_of_decoys_to_generate = 0;
+    let start_time: f64 = time::precise_time_s();
+    let generator: DecoyGenerator = DecoyGenerator::new(precursor_mass, upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
+    generator.generate_decoys(number_of_decoys);
+    let stop_time: f64 = time::precise_time_s();
+    println!("generate {} decoys in {} s", number_of_decoys, stop_time - start_time);
+}
+
+
+fn run_samino_acid_substitution(substitution_cli_args: &clap::ArgMatches) {
+    let modification_csv_file: String = match substitution_cli_args.value_of("MODIFICATION_FILE") {
+        Some(modification_csv_file) => modification_csv_file.to_owned(),
+        None => String::new()
+    };
+    let source_amino_acid: char = match substitution_cli_args.value_of("SOURCE_AMINO_ACID") {
+        Some(string) => {
+            match string.chars().next() {
+                Some(character) => character,
+                None => panic!("ERROR [decoy-generation]: could not parse source-amino-acid to character")
+            }
+        },
+        None => '_'
+    };
+    let destination_amino_acid: char = match substitution_cli_args.value_of("DESTINATION_AMINO_ACID") {
+        Some(string) => {
+            match string.chars().next() {
+                Some(character) => character,
+                None => panic!("ERROR [decoy-generation]: could not parse destination-amino-acid to character")
+            }
+        },
+        None => '_'
+    };
+    // prepare modifications
+    let mods = Modification::create_from_csv_file(&modification_csv_file);
+    let mut fixed_modifications_map: HashMap<char, Modification> = HashMap::new();
+    let mut variable_modifications_map: HashMap<char, Modification> = HashMap::new();
+    for modification in mods.iter() {
+        if modification.is_fix() {
+            fixed_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
+        } else {
+            variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
         }
-        let number_of_decoys_to_generate_freeze = number_of_decoys_to_generate;
-        println!("need to generate {} decoys", number_of_decoys_to_generate);
-        let start_time: f64 = time::precise_time_s();
-        if number_of_decoys_to_generate > 0 {
-            number_of_decoys_to_generate -= generator.vary_targets(&targets, number_of_decoys_to_generate as usize) as i64;
-            println!("still {} decoys needed after shuffling and varying targets", number_of_decoys_to_generate);
+    }
+    let substitution_map = *DecoyGenerator::get_one_amino_acid_substitute_map(&fixed_modifications_map);
+    if let Some(swaps) = substitution_map.get(&source_amino_acid) {
+        if let Some(weight_change) = swaps.get(&destination_amino_acid) {
+            println!("{} => {} = {}", source_amino_acid, destination_amino_acid, mass::convert_mass_to_float(*weight_change));
         }
-        if number_of_decoys_to_generate > 0 {
-            number_of_decoys_to_generate -= generator.generate_decoys(number_of_decoys_to_generate as usize) as i64;
-        }
-        let stop_time: f64 = time::precise_time_s();
-        println!("generate {} decoys in {} s", number_of_decoys_to_generate_freeze, stop_time - start_time);
-        // get decoys
-        // write to fasta files
-        // call comet
-        break;
     }
 }
 
@@ -397,10 +415,17 @@ fn main() {
             .help("Integer, Default: 0")
         )
         .arg(
-            Arg::with_name("NUMBER_OF_DECOYS_PER_TARGET")
+            Arg::with_name("PRECURSOR_MASS")
+            .short("p")
+            .long("precursor-mass")
+            .value_name("PRECURSOR_MASS")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("NUMBER_OF_DECOYS")
             .short("d")
-            .long("number-of-decoys-per-target")
-            .value_name("NUMBER_OF_DECOYS_PER_TARGET")
+            .long("number-of-decoys")
+            .value_name("NUMBER_OF_DECOYS")
             .takes_value(true)
             .help("Integer, Default: 1000")
         )
@@ -419,13 +444,6 @@ fn main() {
             .value_name("UPPER_MASS_TOLERANCE")
             .takes_value(true)
             .help("Integer, Unit: ppm, Default: 5")
-        )
-        .arg(
-            Arg::with_name("MZ_ML_FILE")
-            .short("z")
-            .long("mz-ml-file")
-            .value_name("MZ_ML_FILE")
-            .takes_value(true)
         )
         .arg(
             Arg::with_name("THREAD_COUNT")
@@ -460,6 +478,30 @@ fn main() {
             .help("Helping identifying your mzML among others.")
         )
     )
+    .subcommand(
+        SubCommand::with_name("amino-acid-substitution")
+        .arg(
+            Arg::with_name("MODIFICATION_FILE")
+            .short("m")
+            .long("modification_file")
+            .value_name("MODIFICATION_FILE")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("SOURCE_AMINO_ACID")
+            .short("s")
+            .long("source-amino-acid")
+            .value_name("SOURCE_AMINO_ACID")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("DESTINATION_AMINO_ACID")
+            .short("d")
+            .long("destination-amino-acid")
+            .value_name("DESTINATION_AMINO_ACID")
+            .takes_value(true)
+        )
+    )
     .get_matches();
 
 
@@ -471,6 +513,9 @@ fn main() {
     }
     if let Some(cli_args) = matches.subcommand_matches("spectrum-splitup") {
         run_spectrum_splitup(cli_args)
+    }
+    if let Some(cli_args) = matches.subcommand_matches("amino-acid-substitution") {
+        run_samino_acid_substitution(cli_args)
     }
 }
 
