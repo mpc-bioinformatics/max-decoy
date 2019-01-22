@@ -1,25 +1,22 @@
-extern crate rand;
-extern crate threadpool;
-
-
 use std::collections::{HashSet, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use self::rand::seq::SliceRandom;
-use self::threadpool::ThreadPool;
+use rand::seq::SliceRandom;
+use threadpool::ThreadPool;
 
 use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::peptide::Peptide;
+use proteomic::models::decoys::decoy::Decoy;
 use proteomic::models::persistable::{Persistable, QueryError};
 use proteomic::models::decoys::new_decoy::{NewDecoy, PushAminoAcidOk};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
+use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_DECOY_GENERATION;
 use proteomic::models::amino_acids::modification::Modification;
 
-const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
-
 pub struct DecoyGenerator {
+    precursor_mass: i64,
     upper_weight_limit: i64,
     lower_weight_limit: i64,
     thread_count: usize,
@@ -33,6 +30,7 @@ pub struct DecoyGenerator {
 impl DecoyGenerator {
     pub fn new(precursor_mass: i64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
+            precursor_mass: precursor_mass,
             upper_weight_limit: precursor_mass + ((precursor_mass as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64),
             lower_weight_limit: precursor_mass - ((precursor_mass as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
             thread_count: thread_count,
@@ -103,6 +101,7 @@ impl DecoyGenerator {
             let variable_modification_map_ptr = self.variable_modification_map.clone();
             let one_amino_acid_substitute_map_ptr = self.one_amino_acid_substitute_map.clone();
             // copy primitive attributes of DecoyGenerator which can be moved into thread
+            let precursor_mass = self.precursor_mass;
             let upper_weight_limit = self.upper_weight_limit;
             let lower_weight_limit = self.lower_weight_limit;
             let max_modifications_per_decoy = self.max_modifications_per_decoy;
@@ -117,7 +116,7 @@ impl DecoyGenerator {
                         break 'decoy_loop;
                     }
                     // create new empty decoy
-                    let mut new_decoy: NewDecoy = NewDecoy::new(lower_weight_limit, upper_weight_limit);
+                    let mut new_decoy: NewDecoy = NewDecoy::new(precursor_mass, lower_weight_limit, upper_weight_limit);
                     // let distribution_array = *Self::generate_amino_acid_distribution_array();
                     // repeat until new_decoy's weight greate then upper weight limit
                     'amino_acid_loop: loop {
@@ -139,12 +138,14 @@ impl DecoyGenerator {
                         }
                         // println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                     }
-                    if new_decoy.create(&conn) {
+                    //if new_decoy.create(&conn) {
+                    if new_decoy.hits_mass_tolerance() {
                         decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
                         continue 'decoy_loop;
                     }
                     if new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref())
                     {
+                        // new_decoy.create(&conn);
                         decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
                         continue 'decoy_loop;
                     }
@@ -171,7 +172,7 @@ impl DecoyGenerator {
                         _ => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not check if shuffled target is peptide: {}", err)
                     }
                 }
-                let mut new_decoy: NewDecoy = NewDecoy::from_string(aa_sequence_as_string.as_str(), self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
+                let mut new_decoy: NewDecoy = NewDecoy::from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
                 //decoy_counter += new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, &self.one_amino_acid_substitute_map, &self.fixed_modification_map, self.max_modifications_per_decoy, &self.variable_modification_map);
                 if new_decoy.create(&conn) { decoy_counter += 1 };
                 if decoy_counter == number_of_decoys_to_generate { break 'shuffle_loop; }
@@ -187,7 +188,7 @@ impl DecoyGenerator {
     /// calculates a substitution map for swapping amino acids with each other.
     /// so one can lookup which difference in weight a substitution of amino acid x with y has.
     /// this function also considers fixed modifications
-    fn get_one_amino_acid_substitute_map(fixed_modification_map: &HashMap<char, Modification>) -> Box<HashMap<char, HashMap<char, i64>>> {
+    pub fn get_one_amino_acid_substitute_map(fixed_modification_map: &HashMap<char, Modification>) -> Box<HashMap<char, HashMap<char, i64>>> {
         let mut substitution_map: HashMap<char, HashMap<char, i64>> = HashMap::new();
         for aa_origin in AMINO_ACIDS_FOR_DECOY_GENERATION.iter() {
             let mut differences_in_weight: HashMap<char, i64> = HashMap::new();

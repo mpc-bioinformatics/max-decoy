@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use rand::{thread_rng, Rng};
+use rand::seq::SliceRandom;
+
 use proteomic::models::amino_acids::modification::{Modification, ModificationPosition};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::mass;
@@ -11,6 +14,7 @@ use proteomic::models::decoys::modified_decoy::ModifiedDecoy;
 use proteomic::utility::combinations::n_choose_k::NChooseK;
 use proteomic::models::persistable::{Persistable, QueryOk, QueryError};
 use proteomic::models::peptide::Peptide;
+use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_DECOY_GENERATION;
 
 pub enum PushAminoAcidOk {
     LessThenMassTolerance,
@@ -71,6 +75,7 @@ pub struct NewDecoy {
     aa_sequence: Vec<char>,
     modifications: Vec<Option<Modification>>,
     weight: i64,
+    precursor_mass: i64,
     lower_weight_limit: i64,
     upper_weight_limit: i64,
     n_terminus_modification: Option<Modification>,
@@ -79,12 +84,13 @@ pub struct NewDecoy {
 }
 
 impl NewDecoy {
-    pub fn new(lower_weight_limit: i64, upper_weight_limit: i64) -> Self {
+    pub fn new(precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64) -> Self {
         let water_loss: NeutralLoss = NeutralLoss::get("H2O");
         return Self {
             aa_sequence: Vec::new(),
             modifications: Vec::new(),
             weight: water_loss.get_mono_mass(),
+            precursor_mass: precursor_mass,
             lower_weight_limit: lower_weight_limit,
             upper_weight_limit: upper_weight_limit,
             n_terminus_modification: None,
@@ -93,8 +99,8 @@ impl NewDecoy {
         }
     }
 
-    pub fn from_string(aa_sequence: &str, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
-        let mut new_decoy = Self::new(lower_weight_limit, upper_weight_limit);
+    pub fn from_string(aa_sequence: &str, precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
+        let mut new_decoy = Self::new(precursor_mass, lower_weight_limit, upper_weight_limit);
         for amino_acids_one_letter_code in aa_sequence.chars() {
             let amino_acid = AminoAcid::get(amino_acids_one_letter_code);
             let modification_option = match fix_modifications.get(&amino_acids_one_letter_code) {
@@ -125,14 +131,8 @@ impl NewDecoy {
     }
 
     /// Returns the distance to weight_limit
-    pub fn get_distance_to_mass_tolerance(&self) -> i64 {
-        if self.weight < self.lower_weight_limit {
-            return self.weight - self.lower_weight_limit;
-        } else if self.weight > self.upper_weight_limit {
-            return self.upper_weight_limit - self.weight;
-        } else {
-            return 0;
-        }
+    pub fn get_distance_to_precursor_mass(&self) -> i64 {
+        return (self.precursor_mass - self.weight).abs();
     }
 
     fn push_amino_acid(&mut self, amino_acid: &AminoAcid) {
@@ -302,9 +302,9 @@ impl NewDecoy {
         self.weight += modification.get_mono_mass();
         self.number_of_modifications += 1;
         self.c_terminus_modification = Some(modification.clone());
-        if self.get_distance_to_mass_tolerance() < 0 {
-            return Err(NewDecoyError::OutrangeMassTolerance);
-        }
+        // if self.get_distance_to_mass_tolerance() < 0 {
+        //     return Err(NewDecoyError::OutrangeMassTolerance);
+        // }
         return Ok(());
     }
 
@@ -321,9 +321,9 @@ impl NewDecoy {
         self.weight += modification.get_mono_mass();
         self.number_of_modifications += 1;
         self.n_terminus_modification = Some(modification.clone());
-        if self.get_distance_to_mass_tolerance() < 0 {
-            return Err(NewDecoyError::OutrangeMassTolerance);
-        }
+        // if self.get_distance_to_mass_tolerance() < 0 {
+        //     return Err(NewDecoyError::OutrangeMassTolerance);
+        // }
         return Ok(());
     }
 
@@ -348,9 +348,9 @@ impl NewDecoy {
             }
             self.weight += modification.get_mono_mass();
             self.number_of_modifications += 1;
-            if self.get_distance_to_mass_tolerance() < 0 {
-                return Err(NewDecoyError::OutrangeMassTolerance);
-            }
+            // if self.get_distance_to_mass_tolerance() < 0 {
+            //     return Err(NewDecoyError::OutrangeMassTolerance);
+            // }
         }
         return Ok(());
     }
@@ -441,18 +441,19 @@ impl NewDecoy {
             'sequence: for idx in 0..self.aa_sequence.len() {
                 let aa_one_letter_code = self.get_amino_acid_at(idx);
                 if let Some(ref swaps) = amino_acid_substitute_map.get(&aa_one_letter_code) {
-                    let mut best_swap_option: Option<(i64, char)> = None;
+                    let mut do_swap = false;
+                    let mut best_swap: (i64, char) = (self.get_distance_to_precursor_mass(), aa_one_letter_code);
                     'swaps: for (amino_acid_swap, weight_change) in swaps.iter() {
                         self.weight += weight_change;   // temporarily increase weight
-                        let distance = self.get_distance_to_mass_tolerance();
-                        match best_swap_option {
-                            Some(ref mut best_swap) if distance < best_swap.0 => *best_swap = (distance, *amino_acid_swap),
-                            Some(_) => continue 'swaps,
-                            None => best_swap_option = Some((distance, *amino_acid_swap))
+                        let distance = self.get_distance_to_precursor_mass();
+                        if distance < best_swap.0 {
+                            best_swap = (distance, *amino_acid_swap);
+                            do_swap = true;
+
                         }
                         self.weight -= weight_change; // do not forget to reduce weight
                     }
-                    if let Some(best_swap) = best_swap_option {
+                    if do_swap {
                         self.remove_modification_at(idx);
                         self.weight -= AminoAcid::get(aa_one_letter_code).get_mono_mass();
                         self.weight += AminoAcid::get(best_swap.1).get_mono_mass();
@@ -466,10 +467,28 @@ impl NewDecoy {
                                 Err(err) => panic!("proteomic::models::decoys::new_decoy::NewDecoy.swap_amino_acids_to_hit_mass_tolerance(): {}", err)
                             };
                         }
-                        if self.create(conn) { return true; }
+                        if self.hits_mass_tolerance() { return true; }
                         if self.try_variable_modifications(conn, max_number_of_modifications, varibale_modification_map) { return true; }
                     }
                 }
+            }
+            // swap one random amino acid because gthe current sequence is at it' minimum
+            let mut rng = thread_rng();
+            let idx_to_swap: usize = rng.gen_range(0, self.aa_sequence.len());
+            let aa_one_letter_code = self.get_amino_acid_at(idx_to_swap);
+            let random_replacement = *AMINO_ACIDS_FOR_DECOY_GENERATION.choose(&mut rng).unwrap();
+            self.remove_modification_at(idx_to_swap);
+            self.weight -= AminoAcid::get(aa_one_letter_code).get_mono_mass();
+            self.weight += AminoAcid::get(random_replacement).get_mono_mass();
+            match self.aa_sequence.get_mut(idx_to_swap) {
+                Some(item) => *item = random_replacement,
+                None => panic!("proteomic::models::decoys::new_decoy::NewDecoy.swap_amino_acids_to_hit_mass_tolerance(): expected char insted of None at self.aa_sequence.get_mut(idx_to_swap)")
+            }
+            if let Some(ref modification) = fix_modifications_map.get(&random_replacement) {
+                match self.add_modification_at(idx_to_swap, modification) {
+                    Ok(_) => (),
+                    Err(err) => panic!("proteomic::models::decoys::new_decoy::NewDecoy.swap_amino_acids_to_hit_mass_tolerance(): {}", err)
+                };
             }
         }
         return false;
@@ -499,7 +518,7 @@ impl NewDecoy {
                             }
                         }
                     }
-                    if self.create(conn) { return true; }
+                    if self.hits_mass_tolerance() { return true; }
                 }
             }
         }
