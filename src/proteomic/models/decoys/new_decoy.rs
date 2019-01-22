@@ -12,6 +12,33 @@ use proteomic::utility::combinations::n_choose_k::NChooseK;
 use proteomic::models::persistable::{Persistable, QueryOk, QueryError};
 use proteomic::models::peptide::Peptide;
 
+pub enum PushAminoAcidOk {
+    LessThenMassTolerance,
+    GreterThenMassTolerance,
+    HitsMassTolerance
+}
+
+pub enum PushAminoAcidError {
+    ModificationDoesNotMatchToAminoAcid,
+    ModificationIsNotFix
+}
+
+impl PushAminoAcidError {
+    pub fn to_string(&self) -> String {
+        match self {
+            PushAminoAcidError::ModificationDoesNotMatchToAminoAcid => format!("PushAminoAcidError::ModificationDoesNotMatchToAminoAcid"),
+            PushAminoAcidError::ModificationIsNotFix => format!("PushAminoAcidError::ModificationIsNotFix")
+        }
+    }
+}
+
+impl fmt::Display for PushAminoAcidError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return write!(f, "{}", self.to_string());
+    }
+}
+
+
 pub enum NewDecoyError {
     ModificationDoesNotMatchToAminoAcid,       // modification does not relate to amino acid
     OutrangeMassTolerance,
@@ -71,15 +98,14 @@ impl NewDecoy {
         for amino_acids_one_letter_code in aa_sequence.chars() {
             let amino_acid = AminoAcid::get(amino_acids_one_letter_code);
             let modification_option = match fix_modifications.get(&amino_acids_one_letter_code) {
-                Some(ref modification) => Some((*modification).clone()), 
+                Some(ref modification) => Some((*modification).clone()),
                 None => None
             };
             match new_decoy.push_amino_acid_and_fix_modification(&amino_acid, &modification_option) {
                 Ok(_) => (),
                 Err(err) => match err {
-                    NewDecoyError::OutrangeMassTolerance => continue,
-                    NewDecoyError::ModificationIsNotFix => panic!("proteomic::models::decoys::decoy::new_decoy::NewDecoy::from_string(): variable modification is passed to push_amino_acid_and_fix_modification(), which actually should not happen here."),
-                    _ => panic!("proteomic::models::decoys::decoy::new_decoy::NewDecoy::from_string(): only NewDecoyError::OutrangeMassTolerance and NewDecoyError::ModificationIsNotFix should returned here, but something else was retuned."),
+                    PushAminoAcidError::ModificationIsNotFix => panic!("proteomic::models::decoys::decoy::new_decoy::NewDecoy::from_string(): variable modification is passed to push_amino_acid_and_fix_modification(), which actually should not happen here."),
+                    _ => continue
                 }
             }
         }
@@ -201,7 +227,7 @@ impl NewDecoy {
         for modification_option in self.modifications.iter() {
             if let Some(ref modification) = modification_option {
                 modifications.push(modification.clone());
-            } 
+            }
         }
         if let Some(ref modification) = self.c_terminus_modification {
             modifications.push(modification.clone());
@@ -237,26 +263,33 @@ impl NewDecoy {
         self.n_terminus_modification = None;
     }
 
-    pub fn push_amino_acid_and_fix_modification(&mut self, amino_acid: &AminoAcid, modification_option: &Option<Modification>) -> Result<(), NewDecoyError> {
+    /// Adds amino acid with modification.
+    ///
+    /// # Arguments
+    ///
+    /// * `amino_acid` - Amino acid
+    /// * `modification_option` - Some(Modification )
+    pub fn push_amino_acid_and_fix_modification(&mut self, amino_acid: &AminoAcid, modification_option: &Option<Modification>) -> Result<PushAminoAcidOk, PushAminoAcidError> {
         match modification_option {
             Some(modification) => {
                 if !modification.is_fix() {
-                    return Err(NewDecoyError::ModificationIsNotFix);
+                    return Err(PushAminoAcidError::ModificationIsNotFix);
                 }
                 if modification.get_amino_acid_one_letter_code() != amino_acid.get_one_letter_code() {
-                    return Err(NewDecoyError::ModificationDoesNotMatchToAminoAcid);
+                    return Err(PushAminoAcidError::ModificationDoesNotMatchToAminoAcid);
                 }
             },
             None => ()
         }
         self.push_amino_acid(amino_acid);
-        let old_c_terminus_modifcation = self.push_modification(modification_option);
-        if self.get_distance_to_mass_tolerance() < 0 {
-            self.undo_push_modification(&old_c_terminus_modifcation);
-            self.undo_push_amino_acid(&amino_acid);
-            return Err(NewDecoyError::OutrangeMassTolerance);
+        self.push_modification(modification_option);
+        if self.weight < self.upper_weight_limit {
+            return Ok(PushAminoAcidOk::LessThenMassTolerance);
+        } else if self.weight > self.upper_weight_limit {
+            return Ok(PushAminoAcidOk::GreterThenMassTolerance);
+        } else {
+            return Ok(PushAminoAcidOk::HitsMassTolerance);
         }
-        return Ok(());
     }
 
     fn set_variable_c_terminus_modification(&mut self, modification: &Modification) -> Result<(), NewDecoyError> {
@@ -300,7 +333,7 @@ impl NewDecoy {
     pub fn set_variable_modification_at(&mut self, idx: usize, modification: &Modification) -> Result<(), NewDecoyError> {
         if modification.is_fix() {
             return Err(NewDecoyError::ModificationIsNotVariable);
-        }      
+        }
         if modification.get_amino_acid_one_letter_code() != self.get_amino_acid_at(idx) {
             return Err(NewDecoyError::ModificationDoesNotMatchToAminoAcid);
         }
@@ -420,7 +453,7 @@ impl NewDecoy {
                 let aa_one_letter_code = self.get_amino_acid_at(idx);
                 if let Some(ref replacements) = interchange_map.get(&aa_one_letter_code) {
                     'replacements: for (aa_replacement, weight_change) in replacements.iter() {
-                        // continue if weight must increase but weight_change is negative or 
+                        // continue if weight must increase but weight_change is negative or
                         // weight mus decrease but weight_change is positive
                         if increase_weight & (*weight_change < 0) | !increase_weight & (*weight_change > 0) { continue 'replacements; }
                         self.remove_modification_at(idx);

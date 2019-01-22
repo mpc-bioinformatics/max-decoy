@@ -13,8 +13,8 @@ use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::persistable::{Persistable, QueryError};
-use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
-use proteomic::models::decoys::new_decoy::NewDecoy;
+use proteomic::models::decoys::decoy::Decoy;
+use proteomic::models::decoys::new_decoy::{NewDecoy, PushAminoAcidOk, PushAminoAcidError};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::amino_acids::modification::Modification;
 
@@ -112,21 +112,13 @@ impl DecoyGenerator {
                 let conn: postgres::Connection = DatabaseConnection::get_database_connection();
                 // create random number generator
                 let mut rng = rand::thread_rng();
-                // get haviest and lightest amino acids
-                let haviest_amino_acid: AminoAcid = AminoAcid::get_haviest();
-                let haviest_amino_acid_weight_with_modification: i64 = match fixed_modification_map_ptr.get(&haviest_amino_acid.get_one_letter_code()){
-                    Some(ref modification) => modification.get_mono_mass() + haviest_amino_acid.get_mono_mass(),
-                    None => haviest_amino_acid.get_mono_mass()
-                };
-                // let lightest_amino_acid = AminoAcid::get_lightest();
                 // endless loop with label 'decoy_loop
                 'decoy_loop: loop {
                     // create new empty decoy
                     let mut new_decoy: NewDecoy = NewDecoy::new(lower_weight_limit, upper_weight_limit);
-                    // get array of fitting amino acids
-                    //let distribution_array = *Self::generate_amino_acid_distribution_array();
-                    // repeat until new_decoy's weight is smaller than the haviest amino acid.
-                    while new_decoy.get_distance_to_mass_tolerance() >= haviest_amino_acid_weight_with_modification {
+                    // let distribution_array = *Self::generate_amino_acid_distribution_array();
+                    // repeat until new_decoy's weight greate then upper weight limit
+                    while new_decoy.get_weight() > upper_weight_limit{
                         // pick amino acids one letter code at index
                         //let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
                         let aa_one_letter_code: char = *AMINO_ACIDS_FOR_DECOY_GENERATION.choose(&mut rng).unwrap();
@@ -136,25 +128,13 @@ impl DecoyGenerator {
                             Some(ref modification) => Some((*modification).clone()),
                             None => None
                         };
-                        new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option);
-                        //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
-                    }
-                    let mut still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
-                    while still_fitting_amino_acids.len() > 0 {
-                        // pick amino acids one letter code at index
-                        let aa_one_letter_code: char = *still_fitting_amino_acids.choose(&mut rng).unwrap();
-                        // one letter code to amino acid
-                        let random_amino_acid: AminoAcid = AminoAcid::get(aa_one_letter_code);
-                        let modification_option = match fixed_modification_map_ptr.get(&random_amino_acid.get_one_letter_code()){
-                            Some(ref modification) => Some((*modification).clone()),
-                            None => None
-                        };
                         match new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option) {
-                            Ok(_) => (),
-                            Err(_) => ()
+                            Ok(push_ok) => match push_ok {
+                                PushAminoAcidOk::GreterThenMassTolerance => break 'decoy_loop,
+                                _ => continue 'decoy_loop
+                            },
+                            Err(push_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Error at new_decoy.push_amino_acid_and_fix_modification: {}", push_err)
                         }
-                        still_fitting_amino_acids = *Self::get_amino_acids_with_weight_less_or_equals_than(new_decoy.get_distance_to_mass_tolerance(), &fixed_modification_map_ptr);
-                        //println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                     }
                     decoy_counter_ptr.fetch_add(
                         new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref()),
