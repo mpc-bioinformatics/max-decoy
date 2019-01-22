@@ -2,7 +2,7 @@ extern crate rand;
 extern crate threadpool;
 
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -13,12 +13,11 @@ use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::persistable::{Persistable, QueryError};
-use proteomic::models::decoys::decoy::Decoy;
-use proteomic::models::decoys::new_decoy::{NewDecoy, PushAminoAcidOk, PushAminoAcidError};
+use proteomic::models::decoys::new_decoy::{NewDecoy, PushAminoAcidOk};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::amino_acids::modification::Modification;
 
-const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['A', 'R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'V', 'W', 'Y'];
+const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
 
 pub struct DecoyGenerator {
     upper_weight_limit: i64,
@@ -32,10 +31,10 @@ pub struct DecoyGenerator {
 }
 
 impl DecoyGenerator {
-    pub fn new(weight: i64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
+    pub fn new(precursor_mass: i64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
-            upper_weight_limit: weight + ((weight as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64),
-            lower_weight_limit: weight - ((weight as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
+            upper_weight_limit: precursor_mass + ((precursor_mass as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64),
+            lower_weight_limit: precursor_mass - ((precursor_mass as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
             thread_count: thread_count,
             decoy_counter: Arc::new(AtomicUsize::new(0)),
             max_modifications_per_decoy: max_modifications_per_decoy,
@@ -114,11 +113,14 @@ impl DecoyGenerator {
                 let mut rng = rand::thread_rng();
                 // endless loop with label 'decoy_loop
                 'decoy_loop: loop {
+                    if decoy_counter_ptr.load(Ordering::Relaxed) == number_of_decoys_to_generate {
+                        break 'decoy_loop;
+                    }
                     // create new empty decoy
                     let mut new_decoy: NewDecoy = NewDecoy::new(lower_weight_limit, upper_weight_limit);
                     // let distribution_array = *Self::generate_amino_acid_distribution_array();
                     // repeat until new_decoy's weight greate then upper weight limit
-                    while new_decoy.get_weight() > upper_weight_limit{
+                    'amino_acid_loop: loop {
                         // pick amino acids one letter code at index
                         //let aa_one_letter_code: char = *distribution_array.choose(&mut rng).unwrap();
                         let aa_one_letter_code: char = *AMINO_ACIDS_FOR_DECOY_GENERATION.choose(&mut rng).unwrap();
@@ -130,18 +132,21 @@ impl DecoyGenerator {
                         };
                         match new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option) {
                             Ok(push_ok) => match push_ok {
-                                PushAminoAcidOk::GreterThenMassTolerance => break 'decoy_loop,
-                                _ => continue 'decoy_loop
+                                PushAminoAcidOk::GreterThenMassTolerance => break 'amino_acid_loop,
+                                _ => ()
                             },
                             Err(push_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Error at new_decoy.push_amino_acid_and_fix_modification: {}", push_err)
                         }
+                        // println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                     }
-                    decoy_counter_ptr.fetch_add(
-                        new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref()),
-                        Ordering::Relaxed
-                    );
-                    if decoy_counter_ptr.load(Ordering::Relaxed) == number_of_decoys_to_generate {
-                        break 'decoy_loop;
+                    if new_decoy.create(&conn) {
+                        decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
+                        continue 'decoy_loop;
+                    }
+                    if new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref())
+                    {
+                        decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
+                        continue 'decoy_loop;
                     }
                 }
             });

@@ -124,12 +124,10 @@ impl NewDecoy {
         return (self.lower_weight_limit <= self.weight) & (self.weight <= self.upper_weight_limit);
     }
 
-    /// returns positive value if weight is less than lower_weight_limit
-    /// returns negative value if weight is higher than upper_weight_limit
-    /// returns zero if weight is between or equals lower_weight_limit and upper_weight_limit
+    /// Returns the distance to weight_limit
     pub fn get_distance_to_mass_tolerance(&self) -> i64 {
         if self.weight < self.lower_weight_limit {
-            return self.lower_weight_limit - self.weight;
+            return self.weight - self.lower_weight_limit;
         } else if self.weight > self.upper_weight_limit {
             return self.upper_weight_limit - self.weight;
         } else {
@@ -438,54 +436,47 @@ impl NewDecoy {
         return Ok(());
     }
 
-    pub fn swap_amino_acids_to_hit_mass_tolerance(&mut self, conn: &postgres::Connection, interchange_map: &HashMap<char, HashMap<char, i64>>, fix_modifications_map: &HashMap<char, Modification>, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> usize {
-        let mut created_counter: usize = 0;
-        let mut tries: u16 = 0;
-        if self.hits_mass_tolerance() {
-            if self.create(conn) { created_counter += 1 }
-        }
-        'tries: loop {
+    pub fn swap_amino_acids_to_hit_mass_tolerance(&mut self, conn: &postgres::Connection, amino_acid_substitute_map: &HashMap<char, HashMap<char, i64>>, fix_modifications_map: &HashMap<char, Modification>, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
+        // try 100 times
+        'tries: for _ in 0..100 {
             'sequence: for idx in 0..self.aa_sequence.len() {
-                let increase_weight: bool = match self.get_distance_to_mass_tolerance() {
-                    dist if dist > 0 => true,
-                    _ => false
-                };
                 let aa_one_letter_code = self.get_amino_acid_at(idx);
-                if let Some(ref replacements) = interchange_map.get(&aa_one_letter_code) {
-                    'replacements: for (aa_replacement, weight_change) in replacements.iter() {
-                        // continue if weight must increase but weight_change is negative or
-                        // weight mus decrease but weight_change is positive
-                        if increase_weight & (*weight_change < 0) | !increase_weight & (*weight_change > 0) { continue 'replacements; }
+                if let Some(ref swaps) = amino_acid_substitute_map.get(&aa_one_letter_code) {
+                    let mut best_swap_option: Option<(i64, char)> = None;
+                    'swaps: for (amino_acid_swap, weight_change) in swaps.iter() {
+                        self.weight += weight_change;   // temporarily increase weight
+                        let distance = self.get_distance_to_mass_tolerance();
+                        match best_swap_option {
+                            Some(ref mut best_swap) if distance < best_swap.0 => *best_swap = (distance, *amino_acid_swap),
+                            Some(_) => continue 'swaps,
+                            None => best_swap_option = Some((distance, *amino_acid_swap))
+                        }
+                        self.weight -= weight_change; // do not forget to reduce weight
+                    }
+                    if let Some(best_swap) = best_swap_option {
                         self.remove_modification_at(idx);
-                        // do not use weight_change, because it contains also weight of fixed modification
                         self.weight -= AminoAcid::get(aa_one_letter_code).get_mono_mass();
-                        self.weight += AminoAcid::get(*aa_replacement).get_mono_mass();
+                        self.weight += AminoAcid::get(best_swap.1).get_mono_mass();
                         match self.aa_sequence.get_mut(idx) {
-                            Some(item) => *item = *aa_replacement,
+                            Some(item) => *item = best_swap.1,
                             None => panic!("proteomic::models::decoys::new_decoy::NewDecoy.swap_amino_acids_to_hit_mass_tolerance(): expected char insted of None at self.aa_sequence.get_mut(idx)")
                         }
-                        if let Some(ref modification) = fix_modifications_map.get(aa_replacement) {
+                        if let Some(ref modification) = fix_modifications_map.get(&best_swap.1) {
                             match self.add_modification_at(idx, modification) {
                                 Ok(_) => (),
                                 Err(err) => panic!("proteomic::models::decoys::new_decoy::NewDecoy.swap_amino_acids_to_hit_mass_tolerance(): {}", err)
                             };
                         }
-                        if self.hits_mass_tolerance() {
-                            if self.create(conn) { created_counter += 1 }
-                        }
-                        created_counter += self.try_variable_modifications(conn, max_number_of_modifications, varibale_modification_map);
-                        continue 'sequence; // continue with next amino acid in aa_sequence after swapping
+                        if self.create(conn) { return true; }
+                        if self.try_variable_modifications(conn, max_number_of_modifications, varibale_modification_map) { return true; }
                     }
                 }
             }
-            tries += 1;
-            if tries == 1000 { break 'tries }
         }
-        return created_counter;
+        return false;
     }
 
-    fn try_variable_modifications(&mut self, conn: &postgres::Connection, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> usize {
-        let mut created_counter: usize = 0;
+    fn try_variable_modifications(&mut self, conn: &postgres::Connection, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
         let mut modification_positions: Vec<(usize, char)> = Vec::new();
         for (idx, one_letter_code) in self.aa_sequence.iter().enumerate() {
             if varibale_modification_map.contains_key(one_letter_code) {
@@ -509,13 +500,11 @@ impl NewDecoy {
                             }
                         }
                     }
-                    if self.hits_mass_tolerance() {
-                        if self.create(conn) { created_counter += 1 }
-                    }
+                    if self.create(conn) { return true; }
                 }
             }
         }
-        return created_counter;
+        return false;
     }
 
     pub fn create(&self, conn: &postgres::Connection) -> bool {
