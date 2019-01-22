@@ -212,8 +212,7 @@ impl NewDecoy {
     pub fn as_base_decoy(&self) -> BaseDecoy {
         return BaseDecoy::new(
             self.get_header().as_str(),
-            self.get_aa_sequence().as_str(),
-            AminoAcid::get_sequence_weight(self.get_aa_sequence().as_str())
+            self.get_aa_sequence().as_str()
         )
     }
 

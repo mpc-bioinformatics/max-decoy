@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, FromSqlRowError};
 use proteomic::models::mass;
+use proteomic::models::amino_acids::amino_acid::AminoAcid;
 
 pub struct BaseDecoy {
     id: i64,                            // BIGSERIAL
@@ -15,25 +16,25 @@ pub struct BaseDecoy {
 }
 
 impl BaseDecoy {
-    pub fn new(header: &str, aa_sequence: &str, weight: i64) -> BaseDecoy {
+    pub fn new(header: &str, aa_sequence: &str) -> BaseDecoy {
         return Self {
             id: -1,
             header: header.to_owned(),
             length: aa_sequence.len() as i32,
             aa_sequence: aa_sequence.to_owned(),
-            weight: weight
+            weight: AminoAcid::get_sequence_weight(aa_sequence)
         }
     }
 
     /// Creates PlainDecoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `row` - row must contain [header, aa_sequence, weight] in this order
     fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
         return PlainDecoy::new(
             format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
-            &row.get::<usize, String>(0), 
+            &row.get::<usize, String>(0),
             &row.get(3)
         );
     }
@@ -41,9 +42,9 @@ impl BaseDecoy {
     /// Works like find_where() but to save resources it does not create ModifiedDecoys with all Modification first but
     /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a PlainDecoy.
     /// Make sure that the number of $x used in `condition` are the same as elements in `values`.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `conn` - Connection to Postgres
     /// * `condition` - WHERE-condition e.g. modified_decoy.weight BETWEEN $1 AND $2
     /// * `values` - e.g. [1000, 2000] for conditions example
@@ -68,7 +69,7 @@ impl Decoy for BaseDecoy {
         return format!(
             "proteomic::modes::decoys::base_decoy::BaseDecoy\n\theader => {}\n\taa_sequence => {}\n\tweight => {}",
             self.header,
-            self.aa_sequence, 
+            self.aa_sequence,
             mass::convert_mass_to_float(self.weight)
         );
     }
