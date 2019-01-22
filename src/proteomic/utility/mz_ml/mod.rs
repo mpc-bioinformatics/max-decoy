@@ -1,6 +1,5 @@
 pub mod mz_ml_reader;
 pub mod spectrum;
-pub mod chromatogram;
 
 use std::collections::HashMap;
 

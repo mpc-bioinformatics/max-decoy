@@ -7,7 +7,6 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 
 use proteomic::utility::mz_ml;
-use proteomic::utility::mz_ml::chromatogram::Chromatrogram;
 use proteomic::models::mass;
 
 const NAME_OF_MASS_TO_CHARGE_CV_PARAM: &str = "selected ion m/z";
@@ -167,15 +166,13 @@ impl Spectrum {
     /// # Arguments
     ///
     /// * `content_before_spectrum_list` - Content from original mzML-file, before spectrumListTag.
-    /// * `chromatograms - Chromatograms of original mzMl-file, used to create index list.
-    pub fn to_mz_ml(&self, content_before_spectrum_list: &str, chromatograms: &Vec<Chromatrogram>, destination_folder: &str, file_suffix: &str) {
+    pub fn to_mz_ml(&self, content_before_spectrum_list: &str, destination_folder: &str, file_suffix: &str) {
         // create index list for mzML with open indexList-tag
-        let mut index_list = format!("{}<indexList count=\"2\">\n",mz_ml::indent(1));
+        let mut index_list = format!("{}<indexList count=\"1\">\n",mz_ml::indent(1));
         // open index-tag for spectrums
         index_list.push_str(format!("{}<index name=\"spectrum\">\n", mz_ml::indent(2)).as_str());
         // begin with xml
         let mut mz_ml_content: String = content_before_spectrum_list.to_owned();
-        mz_ml_content.push_str("\n");
         // open spectrumList-tag
         mz_ml_content.push_str(format!("{}<spectrumList count=\"1\" defaultDataProcessingRef=\"pwiz_Reader_conversion\">\n",mz_ml::indent(self.indent_level - 1)).as_str());
         // get offset to the end of content
@@ -190,24 +187,6 @@ impl Spectrum {
         mz_ml_content.push_str(format!("{}</spectrumList>\n", mz_ml::indent(self.indent_level - 1)).as_str());
         // close index-tag for spectrums
         index_list.push_str(format!("{}</index>\n", mz_ml::indent(2)).as_str());
-        // open index-tag for chromatograms
-        index_list.push_str(format!("{}<index name=\"chromatogram\">\n", mz_ml::indent(2)).as_str());
-        // open chromatogramList-tag
-        mz_ml_content.push_str(format!("{}<chromatogramList count=\"{}\" defaultDataProcessingRef=\"pwiz_Reader_conversion\">\n", mz_ml::indent(self.indent_level - 1), chromatograms.len()).as_str());
-        for chromatogram in chromatograms {
-            // get offset to the end of content
-            offset = mz_ml_content.len();
-            // and add number of indention characters of the current chromatogram to get chromatograms's offset
-            offset += Self::count_chars_before_tag_starts(chromatogram.get_xml());
-            // add chromatogram's xml to mzML
-            mz_ml_content.push_str(format!("{}\n", chromatogram.get_xml()).as_str());
-            // add offset-tag for the current chromatogram
-            index_list.push_str(format!("{}<offset idRef=\"{}\">{}</offset>\n", mz_ml::indent(3), chromatogram.get_id_ref(), offset).as_str());
-        }
-        // close index-tag for chromatograms
-        index_list.push_str(format!("{}</index>\n", mz_ml::indent(2)).as_str());
-        // close chromatograList-tag
-        mz_ml_content.push_str(format!("{}</chromatogramList>\n", mz_ml::indent(self.indent_level - 1)).as_str());
         // close run-tag (opened in content_before_spectrum_list)
         mz_ml_content.push_str(format!("{}</run>\n", mz_ml::indent(2)).as_str());
         // close mzML-tag (opened in content_before_spectrum_list)

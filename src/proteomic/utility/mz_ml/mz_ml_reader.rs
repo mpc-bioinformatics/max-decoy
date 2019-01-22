@@ -7,7 +7,6 @@ use quick_xml::Writer;
 
 use proteomic::utility::mz_ml;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
-use proteomic::utility::mz_ml::chromatogram::Chromatrogram;
 
 const NAME_OF_MS_LEVEL_CV_PARAM: &str = "ms level";
 
@@ -140,67 +139,6 @@ impl MzMlReader {
             Ok(string) => string.to_owned(),
             Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader.get_content_before_spectrum_list(): Error at std::str::from_utf8(): {}", err)
         }
-    }
-
-    pub fn get_chromatograms(&self) -> Box<Vec<Chromatrogram>> {
-        let mut chromatograms: Vec<Chromatrogram> = Vec::new();
-        let mut reader = match Reader::from_file(Path::new(self.file_path.as_str())) {
-            Ok(reader) => reader,
-            Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader.get_chromatograms(): error when reading MzMl-File, original error: {:?}", err)
-        };
-        let mut buf = Vec::new();
-        let mut inside_chromatogram: bool = false;
-        let mut indent_level = 0;
-        let mut chromatogram_writer = Writer::new(Cursor::new(Vec::new()));
-        loop {
-            match reader.read_event(&mut buf) {
-                // entering tags: <tag (attr1="" attr2="" ...)>
-                Ok(Event::Start(ref tag)) => {
-                    match tag.name() {
-                        b"chromatogram" => {
-                            inside_chromatogram = true;
-                            Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::Start(tag.to_owned()), indent_level);
-                        },
-                        _ if inside_chromatogram => Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::Start(tag.to_owned()), indent_level),
-                        _ => ()
-                    }
-                    indent_level += 1;
-                },
-                // empty tags: <tag (attr1="" attr2="" ...)/>
-                Ok(Event::Empty(ref tag)) => {
-                    match tag.name() {
-                        _ if inside_chromatogram => Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::Empty(tag.to_owned()), indent_level),
-                        _ => ()
-                    }
-                }
-                // leaving of tags: </tag>
-                Ok(Event::End(ref tag)) => {
-                    indent_level -= 1;
-                    match tag.name() {
-                        b"chromatogram" if inside_chromatogram => {
-                            Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::End(tag.to_owned()), indent_level);
-                            let chromatogram_xml = match std::str::from_utf8(chromatogram_writer.into_inner().into_inner().as_slice()) {
-                                Ok(string) => string.to_owned(),
-                                Err(err) => panic!("proteomic::utility::mz_ml_reader::MzMlReader.get_chromatograms(): Error at std::str::from_utf8(): {}", err)
-                            };
-                            chromatograms.push(Chromatrogram::new(chromatogram_xml.as_str(), indent_level));
-                            chromatogram_writer = Writer::new(Cursor::new(Vec::new()));
-                            inside_chromatogram = false;
-                        },
-                        b"chromatogramList" => break,
-                        _ if inside_chromatogram => Self::write_event_with_indention_and_newline(&mut chromatogram_writer, &Event::End(tag.to_owned()), indent_level),
-                        _ => ()
-                    }
-                },
-                Ok(Event::Eof) => break, // exits the loop when reaching end of file
-                Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
-                _ => (), // There are several other `Event`s we do not consider here
-            }
-
-            // if we don't keep a borrow elsewhere, we can clear the buffer to keep memory usage low
-            buf.clear();
-        }
-        return Box::new(chromatograms);
     }
 
     fn write_new_line(writer: &mut quick_xml::Writer<Cursor<Vec<u8>>>) {

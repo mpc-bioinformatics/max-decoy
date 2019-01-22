@@ -5,7 +5,7 @@ extern crate postgres_array;
 extern crate quick_xml;
 extern crate sha1;
 
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 
 use clap::{Arg, App, SubCommand};
 
@@ -16,7 +16,6 @@ use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::decoy_generator::DecoyGenerator;
 use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
-use proteomic::utility::mz_ml::chromatogram::Chromatrogram;
 
 use proteomic::models::enzyms::trypsin::Trypsin;
 use proteomic::models::persistable::Persistable;
@@ -309,11 +308,10 @@ fn run_spectrum_splitup(mz_ml_splitup_cli_args: &clap::ArgMatches) {
     };
     let start_time: f64 = time::precise_time_s();
     let mz_ml_reader = MzMlReader::new(mz_ml_file);
-    let chromatograms: Vec<Chromatrogram> = *mz_ml_reader.get_chromatograms();
     let content_before_spectrum_list = mz_ml_reader.get_content_before_spectrum_list();
     let spectra: Vec<Spectrum> = *mz_ml_reader.get_ms_two_spectra();
     for spectrum in spectra.iter() {
-        spectrum.to_mz_ml(content_before_spectrum_list.as_str(), &chromatograms, destination_folder, file_suffix);
+        spectrum.to_mz_ml(content_before_spectrum_list.as_str(), destination_folder, file_suffix);
     }
     let stop_time: f64 = time::precise_time_s();
     println!("found and write {} MS2-spectra in {} s", spectra.len(), stop_time - start_time);
