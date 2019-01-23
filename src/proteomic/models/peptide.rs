@@ -1,13 +1,11 @@
-extern crate postgres;
-
 use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 
-use self::postgres::Connection;
-
+use proteomic::models::mass;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
-use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
+use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError};
 
-const WEIGHT_CONVERT_FACTOR: f64 = 1000000.0;
+pub const AMINO_ACIDS_FOR_COUNTING: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
 
 /*
  * attributes id, length, number_of_missed_cleavages and weight should be unsigned, but postgresql crate and database does not support it
@@ -19,19 +17,25 @@ pub struct Peptide {
     digest_enzym: String,               // CHAR(5)
     length: i32,                        // INTEGER
     number_of_missed_cleavages: i16,    // SMALLINT
-    weight: i64                         // BIGINT
+    weight: i64,                        // BIGINT
+    amino_acids_counts: HashMap<char, i16>
 }
 
 impl Peptide {
     pub fn new(aa_sequence: String, digest_enzym: String, number_of_missed_cleavages: i16) -> Peptide {
         let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(&aa_sequence);
+        let mut amino_acids_counts: HashMap<char, i16> = HashMap::new();
+        for one_letter_code in AMINO_ACIDS_FOR_COUNTING {
+            amino_acids_counts.insert(*one_letter_code, generalized_aa_sequence.matches(*one_letter_code).count() as i16);
+        }
         return Peptide{
             id: 0,
             length: generalized_aa_sequence.len() as i32,
             weight: AminoAcid::get_sequence_weight(&generalized_aa_sequence),
             aa_sequence: generalized_aa_sequence,
             digest_enzym: digest_enzym,
-            number_of_missed_cleavages: number_of_missed_cleavages
+            number_of_missed_cleavages: number_of_missed_cleavages,
+            amino_acids_counts: amino_acids_counts
         }
     }
 
@@ -47,16 +51,23 @@ impl Peptide {
             self.digest_enzym,
             self.length,
             self.number_of_missed_cleavages,
-            self.weight
+            mass::convert_mass_to_float(self.weight)
         );
     }
 
-    pub fn get_weight(&self) -> f64 {
-        return self.weight as f64 / WEIGHT_CONVERT_FACTOR;
+    pub fn get_weight(&self) -> i64 {
+        return self.weight;
     }
 
     pub fn get_aa_sequence(&self) -> &String {
         return &self.aa_sequence;
+    }
+
+    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> &i16 {
+        match self.amino_acids_counts.get(amino_acid_one_letter_code) {
+            Some(count) => count,
+            None => &0,
+        }
     }
 }
 
@@ -69,7 +80,29 @@ impl Persistable<Peptide, i64, String> for Peptide {
                 length: row.get(2),
                 number_of_missed_cleavages: row.get(3),
                 weight: row.get(4),
-                digest_enzym: row.get(5)
+                digest_enzym: row.get(5),
+                amino_acids_counts: [
+                    ('r', row.get(6)),
+                    ('n', row.get(7)),
+                    ('d', row.get(8)),
+                    ('c', row.get(9)),
+                    ('e', row.get(10)),
+                    ('q', row.get(11)),
+                    ('g', row.get(12)),
+                    ('h', row.get(13)),
+                    ('j', row.get(14)),
+                    ('k', row.get(15)),
+                    ('m', row.get(16)),
+                    ('f', row.get(17)),
+                    ('p', row.get(18)),
+                    ('o', row.get(19)),
+                    ('s', row.get(20)),
+                    ('t', row.get(21)),
+                    ('u', row.get(22)),
+                    ('v', row.get(23)),
+                    ('w', row.get(24)),
+                    ('y', row.get(25))
+                ].iter().cloned().collect()
             }
         )
     }
@@ -99,19 +132,72 @@ impl Persistable<Peptide, i64, String> for Peptide {
     }
 
     fn create_query() -> &'static str {
-        return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id;";
+        return "INSERT INTO peptides (aa_sequence, digest_enzym, number_of_missed_cleavages, weight, length, r_count, n_count, d_count, c_count, e_count, q_count, g_count, h_count, j_count, k_count, m_count, f_count, p_count, o_count, s_count, t_count, u_count, v_count, w_count, y_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id;";
     }
 
     fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
-        return Box::new(vec![&self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]);
+        return Box::new(vec![
+            &self.aa_sequence,
+            &self.digest_enzym,
+            &self.number_of_missed_cleavages,
+            &self.weight,
+            &self.length,
+            self.get_count_for_amino_acid(&'r'),
+            self.get_count_for_amino_acid(&'n'),
+            self.get_count_for_amino_acid(&'d'),
+            self.get_count_for_amino_acid(&'c'),
+            self.get_count_for_amino_acid(&'e'),
+            self.get_count_for_amino_acid(&'q'),
+            self.get_count_for_amino_acid(&'g'),
+            self.get_count_for_amino_acid(&'h'),
+            self.get_count_for_amino_acid(&'j'),
+            self.get_count_for_amino_acid(&'k'),
+            self.get_count_for_amino_acid(&'m'),
+            self.get_count_for_amino_acid(&'f'),
+            self.get_count_for_amino_acid(&'p'),
+            self.get_count_for_amino_acid(&'o'),
+            self.get_count_for_amino_acid(&'s'),
+            self.get_count_for_amino_acid(&'t'),
+            self.get_count_for_amino_acid(&'u'),
+            self.get_count_for_amino_acid(&'v'),
+            self.get_count_for_amino_acid(&'w'),
+            self.get_count_for_amino_acid(&'y')
+        ]);
     }
 
     fn update_query() -> &'static str{
-        return "UPDATE peptides SET aa_sequence = $2, digest_enzym = $3, number_of_missed_cleavages = $4, weight = $5, length = $6 WHERE id = $1;";
+        return "UPDATE peptides SET aa_sequence = $2, digest_enzym = $3, number_of_missed_cleavages = $4, weight = $5, length = $6, r_count = $7, n_count = $8, d_count = $9, c_count = $10, e_count = $11, q_count = $12, g_count = $13, h_count = $14, j_count = $15, k_count = $16, m_count = $17, f_count = $18, p_count = $19, o_count = $20, s_count = $21, t_count = $22, u_count = $23, v_count = $24, w_count = $25, y_count = $26 WHERE id = $1;";
     }
 
     fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
-        return Box::new(vec![&self.id, &self.aa_sequence, &self.digest_enzym, &self.number_of_missed_cleavages, &self.weight, &self.length]);
+        return Box::new(vec![
+            &self.id,
+            &self.aa_sequence,
+            &self.digest_enzym,
+            &self.number_of_missed_cleavages,
+            &self.weight,
+            &self.length,
+            self.get_count_for_amino_acid(&'r'),
+            self.get_count_for_amino_acid(&'n'),
+            self.get_count_for_amino_acid(&'d'),
+            self.get_count_for_amino_acid(&'c'),
+            self.get_count_for_amino_acid(&'e'),
+            self.get_count_for_amino_acid(&'q'),
+            self.get_count_for_amino_acid(&'g'),
+            self.get_count_for_amino_acid(&'h'),
+            self.get_count_for_amino_acid(&'j'),
+            self.get_count_for_amino_acid(&'k'),
+            self.get_count_for_amino_acid(&'m'),
+            self.get_count_for_amino_acid(&'f'),
+            self.get_count_for_amino_acid(&'p'),
+            self.get_count_for_amino_acid(&'o'),
+            self.get_count_for_amino_acid(&'s'),
+            self.get_count_for_amino_acid(&'t'),
+            self.get_count_for_amino_acid(&'u'),
+            self.get_count_for_amino_acid(&'v'),
+            self.get_count_for_amino_acid(&'w'),
+            self.get_count_for_amino_acid(&'y')
+        ]);
     }
 
     fn delete_query() -> &'static str {
@@ -163,6 +249,7 @@ impl Clone for Peptide {
             number_of_missed_cleavages: self.number_of_missed_cleavages,
             weight: self.weight,
             digest_enzym: String::from(self.digest_enzym.as_str()),
+            amino_acids_counts: self.amino_acids_counts.clone()
         }
     }
 }
