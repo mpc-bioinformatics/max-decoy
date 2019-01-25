@@ -90,7 +90,8 @@ pub trait DigestEnzym<'e> {
                         }
                     }
                 } else {
-                    break 'missed_cleavage_loop;\n\t                }
+                    break 'missed_cleavage_loop;
+                }
             }
         }
         if !summary.get_unsolveable_errors_occured() {
