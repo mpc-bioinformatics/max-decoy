@@ -1,21 +1,17 @@
-extern crate onig;
-extern crate postgres;
-
 use std::{thread, time};
 use std::collections::HashSet;
 
-use proteomic::models::persistable::{Persistable, QueryError, QueryOk};
+use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryOk};
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
-use proteomic::models::enzyms::results::digest_ok::DigestOk;
-use proteomic::models::enzyms::results::digest_error::DigestError;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
+use proteomic::models::enzyms::digest_summary::DigestSummary;
 
-const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(20);
+const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(5);
 
-pub trait DigestEnzym {
-    fn new(max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Self;
+pub trait DigestEnzym<'e> {
+    fn new(database_connection: &'e  postgres::Connection, max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Self;
     fn get_name(&self) -> &str;
     fn get_shortcut(&self) -> &str;
     fn get_max_number_of_missed_cleavages(&self) -> i16;
@@ -23,153 +19,116 @@ pub trait DigestEnzym {
     fn get_digest_replace(&self) -> &'static str;
     fn get_min_peptide_length(&self) -> usize;
     fn get_max_peptide_length(&self) -> usize;
+    fn get_database_connection(&self) -> &postgres::Connection;
+    fn get_peptide_create_statement(&self) -> &postgres::stmt::Statement;
+    fn get_peptide_exists_statement(&self) -> &postgres::stmt::Statement;
+    fn get_pp_association_create_statement(&self) -> &postgres::stmt::Statement;
+    fn get_pp_association_exists_statement(&self) -> &postgres::stmt::Statement;
 
-    fn digest(&self, database_connection: &postgres::Connection, protein: &mut Protein) -> Result<DigestOk, DigestError>  {
-        let mut error_counter: u8 = 0;
-        let mut commited_peptide_counter: usize = 0;
-        let mut commited_peptide_protein_association_counter: usize = 0;
-        let mut processed_peptide_counter: usize = 0;
-        let mut processed_peptide_protein_association_counter: usize = 0;
-        let mut log: String = String::new();
+
+
+    // -> Result<DigestOk, DigestError>
+    fn digest(&mut self, protein: &mut Protein) -> DigestSummary  {
+        let mut summary = DigestSummary::new();
+
+        // make sure protein is persisted (has id)
+        if !protein.is_persisted() {
+            match protein.create(self.get_database_connection()) {
+                Ok(query_ok) => match query_ok {
+                    QueryOk::Created => summary.set_created_protein(),
+                    QueryOk::AlreadyExists => (),
+                    _ => panic!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in Protein.create(), this panic should never be reached")
+                },
+                // early return, because without persisted Protein we could not create associations
+                Err(query_err) => {
+                    summary.set_unsolveable_errors_occured();
+                    summary.log_push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym.digest(): Error occured at protein.create(): {}", query_err).as_str());
+                    return summary;
+                }
+            }
+        }
 
         /*
          * clone aa_squence and pass it as mutable into replace_all
-         * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T and not P)
+         * replace every digist_regex-match with with digist_replace (in caseof Trypsin it means add a whitespace between K or T not followed by P)
          * make the result mutable and split it on whitespaces
          * collect the results as String-vector
          */
-        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
-
-        'tries_loop: loop {
-            processed_peptide_counter = 0;
-            processed_peptide_protein_association_counter = 0;
-            commited_peptide_counter = 0;                        // reset peptides counter for this try
-            commited_peptide_protein_association_counter = 0;    // reset association  counter for this try
-
-            let mut error_message: String = String::new();
-            let mut error_occured = false;
-
-            // database transaction and statements
-            let transaction = database_connection.transaction().unwrap();
-
-            let peptide_create_statement = transaction.prepare_cached(Peptide::create_query()).unwrap();
-            let peptide_exists_statement = transaction.prepare_cached(Peptide::exists_query()).unwrap();
-
-            let pp_association_create_statement = transaction.prepare_cached(PeptideProteinAssociation::create_query()).unwrap();
-            let pp_association_exists_statement = transaction.prepare_cached(PeptideProteinAssociation::exists_query()).unwrap();
-            ////
-
-            // let mut peptide_position: usize = 0;
-            // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
-            'peptide_loop: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
-                let mut new_peptide_aa_sequence: String = String::new();
-                'missed_cleavage_loop: for number_of_missed_cleavages in 0..(self.get_max_number_of_missed_cleavages() + 1) {
-                    let temp_idx: usize = peptide_idx + number_of_missed_cleavages as usize;
-                    if temp_idx < peptides_without_missed_cleavages.len() {
-                        new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
-                        if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                            let mut peptide = Peptide::new(new_peptide_aa_sequence.clone(), self.get_shortcut().to_owned(), number_of_missed_cleavages);
-                            // reset error variables
-                            error_message = format!("Peptide [{}]", peptide.get_aa_sequence());
-                            error_occured = false;
-                            match peptide.prepared_create(&peptide_create_statement, &peptide_exists_statement) {
-                                Ok(query_ok) => match query_ok {
-                                    QueryOk::Created => commited_peptide_counter += 1,
-                                    QueryOk::AlreadyExists => (),
-                                    _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in Peptide.prepared_create(), this panic should never be reached")
-                                },
-                                Err(err) => {
-                                    error_occured = true;
-                                    error_message.push_str(format!("\n\tPeptide.prepared_create(): {}", err).as_str());
-                                    break 'peptide_loop;
+        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        // let mut peptide_position: usize = 0;
+        // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
+        for peptide_idx in 0..peptides_without_missed_cleavages.len() {
+            // create empty sequence
+            let mut new_peptide_aa_sequence: String = String::new();
+            'missed_cleavage_loop: for number_of_missed_cleavages in 0..(self.get_max_number_of_missed_cleavages() + 1) {
+                let temp_idx: usize = peptide_idx + number_of_missed_cleavages as usize;
+                if temp_idx < peptides_without_missed_cleavages.len() {
+                    new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
+                    if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
+                        let mut local_log: Vec<String> = Vec::new();
+                        let mut peptide = Peptide::new(new_peptide_aa_sequence.as_str(), self.get_shortcut(), number_of_missed_cleavages);
+                        for try in 1..=3 {
+                            match self.create_peptide_and_association(&mut summary, protein, &mut peptide) {
+                                Ok(_) => (),
+                                Err(err_message) => match try {
+                                    1 => {
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason: {}", peptide.get_aa_sequence(), err_message));
+                                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
+                                    }
+                                    2 =>{
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason: {}", peptide.get_aa_sequence(), err_message));
+                                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
+                                    }
+                                    3 => {
+                                        summary.set_unsolveable_errors_occured();
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason: {}", peptide.get_aa_sequence(), err_message));
+                                        summary.log_push(local_log.join("\n").as_str());
+                                    }
+                                    _ => ()
                                 }
-                            }
-                            processed_peptide_counter += 1;
-                            if peptide.is_persisted() {
-                                let mut association = PeptideProteinAssociation::new(&peptide, &protein);
-                                match association.prepared_create(&pp_association_create_statement, &pp_association_exists_statement) {
-                                    Ok(query_ok) => match query_ok {
-                                        QueryOk::Created => commited_peptide_protein_association_counter += 1,
-                                        QueryOk::AlreadyExists => (),
-                                        _ => panic!("Panic [proteomic::models::enzyms::digest_enzym::DigestEnzym::digest()]: In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in PeptideProteinAssociation.prepared_create(), this panic should never be reached")
-                                    },
-                                    Err(err) => {
-                                        error_occured = true;
-                                        error_message.push_str(format!("\n\tPeptideProteinAssociation.prepared_create(): {}",err).as_str());
-                                        break 'peptide_loop;
-                                    }                                     
-                                }
-                                processed_peptide_protein_association_counter += 1;
                             }
                         }
-                    } else {
-                        break 'missed_cleavage_loop;
                     }
+                } else {
+                    break 'missed_cleavage_loop;
                 }
-            }
-            if error_occured {
-                error_counter += 1;
-                match error_counter {
-                    // some errors occure, rollback, wait and try again later
-                    1 | 2 => {
-                        log.push_str(
-                            format!(
-                                "WARNING => THREAD [{}]: {}. error occured. Do a rollback and try again in {} seconds. Error(s): {}\n",
-                                protein.get_accession(),
-                                error_counter,
-                                DIGEST_WAIT_DURATION_FOR_ERRORS.as_secs(),
-                                error_message
-                            ).as_str()
-                        );
-                        transaction.set_rollback();
-                        transaction.finish();
-                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
-                        continue 'tries_loop;
-                    },
-                    // no more try, rollback, report this as error and set peptides counter to 0
-                    _ => {
-                        log.push_str(
-                            format!(
-                                "ERROR   => THREAD [{}]: {}. error occured. Do a rollback, do no further tries. Last occured error(s):{}\n",
-                                protein.get_accession(),
-                                error_counter,
-                                error_message
-                            ).as_str()
-                        );
-                        transaction.set_rollback();
-                        transaction.finish();
-                        return Err(
-                            DigestError::new(
-                                log.as_str()
-                            )
-                        )
-                    }
-
-                }
-            } else {
-                // no errors, commit
-                transaction.set_commit();
-                transaction.finish();
-                if error_counter > 0 {
-                    log.push_str(
-                        format!(
-                            "INFO    => THREAD [{}]: Commited after {} errors occured.\n",
-                            protein.get_accession(),
-                            error_counter
-                        ).as_str()
-                    );
-                }
-                return Ok(
-                    DigestOk::new(
-                        processed_peptide_counter,
-                        commited_peptide_counter,
-                        processed_peptide_protein_association_counter,
-                        commited_peptide_protein_association_counter,
-                        log.as_str()
-                    )
-                )
             }
         }
+        return summary;
+    }
+
+    fn create_peptide_and_association(&mut self, digest_summary: &mut DigestSummary, protein: &Protein, peptide: &mut Peptide) -> Result<(), String> {
+        // create transaction for peptide and association
+        let transaction = match self.get_database_connection().transaction() {
+            Ok(transaction) => transaction,
+            Err(err) => return Err(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym.digest(): Querry error at database_connection.transaction()\n\t{}", handle_postgres_error(&err)))
+        };
+        transaction.set_rollback(); // set only to commit if no errors occured
+        let peptide_created: bool = match peptide.prepared_create(self.get_peptide_create_statement(), self.get_peptide_exists_statement()) {
+            Ok(query_ok) => match query_ok {
+                QueryOk::Created => true,
+                QueryOk::AlreadyExists => false,
+                _ => panic!("proteomic::models::enzyms::digest_enzym::DigestEnzym::create_peptide_and_association(): In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in Peptide.prepared_create(), this panic should never be reached")
+            },
+            Err(err) => return Err(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym.create_peptide_and_association(): Querry error at peptide.prepared_create()\n\t{}", err))
+        };
+        let mut association = PeptideProteinAssociation::new(peptide, protein);
+        let association_created: bool = match association.prepared_create(self.get_pp_association_create_statement(), self.get_pp_association_exists_statement()) {
+            Ok(query_ok) => match query_ok {
+                QueryOk::Created => true,
+                QueryOk::AlreadyExists => false,
+                _ => panic!("proteomic::models::enzyms::digest_enzym::DigestEnzym::create_peptide_and_association(): In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in PeptideProteinAssociation.prepared_create(), this panic should never be reached")
+            },
+            Err(err) => {
+                return Err(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym.create_peptide_and_association(): Querry error at association.prepared_create())\n\t{}", err));
+            }
+        };
+        transaction.set_commit();
+        match transaction.finish() {
+            Ok(_) => digest_summary.increase_counter(peptide_created, association_created),
+            Err(err) => return Err(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym.digest(): Error at transaction commit: {}", handle_postgres_error(&err)))
+        }
+        return Ok(());
     }
 
     fn digest_with_hash_set(&self, protein: &mut Protein, aa_sequences: &mut HashSet<String>) {
@@ -179,7 +138,7 @@ pub trait DigestEnzym {
          * make the result mutable and split it on whitespaces
          * collect the results as String-vector
          */
-        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence().clone().as_mut_str()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
+        let peptides_without_missed_cleavages: Vec<String> = self.get_digest_regex().split(protein.get_aa_sequence()).map(|peptide| peptide.to_owned()).collect::<Vec<String>>();
         // let mut peptide_position: usize = 0;
         // calculate peptides for missed_cleavages 1 to n + 1 (+1 because explicit boundary)
         'outer: for peptide_idx in 0..peptides_without_missed_cleavages.len() {
