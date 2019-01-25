@@ -124,7 +124,7 @@ impl Persistable<Peptide, i64, String> for Peptide {
     }
 
     fn create_query() -> &'static str {
-        return "INSERT INTO peptides (aa_sequence, number_of_missed_cleavages, weight, length, r_count, n_count, d_count, c_count, e_count, q_count, g_count, h_count, j_count, k_count, m_count, f_count, p_count, o_count, s_count, t_count, u_count, v_count, w_count, y_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id;";
+        return "INSERT INTO peptides (aa_sequence, number_of_missed_cleavages, weight, length, r_count, n_count, d_count, c_count, e_count, q_count, g_count, h_count, j_count, k_count, m_count, f_count, p_count, o_count, s_count, t_count, u_count, v_count, w_count, y_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id;";
     }
 
     fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
