@@ -93,6 +93,13 @@ pub trait DigestEnzym<'e> {
                     break 'missed_cleavage_loop;\n\t                }
             }
         }
+        if !summary.get_unsolveable_errors_occured() {
+            protein.set_is_completely_digested(true);
+            match protein.update(self.get_database_connection()) {
+                Ok(_) => (),
+                Err(err) => summary.log_push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): cannot update protein:\n\t{}", err).as_str())
+            }
+        }
         return summary;
     }
 
