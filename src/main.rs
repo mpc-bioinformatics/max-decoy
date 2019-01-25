@@ -6,6 +6,8 @@ extern crate quick_xml;
 extern crate sha1;
 extern crate rand;
 extern crate threadpool;
+extern crate onig;
+extern crate time;
 
 use std::collections::HashMap;
 
@@ -14,12 +16,10 @@ use clap::{Arg, App, SubCommand};
 mod proteomic;
 use proteomic::utility::input_file_digester::file_digester::FileDigester;
 use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
-use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::utility::decoy_generator::DecoyGenerator;
 use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
 
-use proteomic::models::enzyms::trypsin::Trypsin;
 use proteomic::models::amino_acids::modification::Modification;
 use proteomic::models::mass;
 
@@ -124,48 +124,14 @@ fn run_digestion(digest_cli_args: &clap::ArgMatches) {
         }
     };
     if !error_in_digest_args {
-        let database_connection: postgres::Connection = DatabaseConnection::get_database_connection();
-        let mut results_for_digest_and_commit: (usize, usize, f64) = (0, 0, 0.0);
-        let mut results_for_counting: (usize, usize) = (0, 0);
         match input_format {
             "fasta" => {
-                let mut file_handler = match enzym_name.to_lowercase().as_str() {
-                    "trypsin" => FastaDigester::<Trypsin>::new(
-                        input_file,
-                        thread_count,
-                        number_of_missed_cleavages,
-                        min_peptide_length,
-                        max_peptide_length
-                    ),
-                    _ => FastaDigester::<Trypsin>::new(
-                        input_file,
-                        thread_count,
-                        number_of_missed_cleavages,
-                        min_peptide_length,
-                        max_peptide_length
-                    )
+                let mut digester = FastaDigester::new(input_file, thread_count, number_of_missed_cleavages, min_peptide_length, max_peptide_length);
+                let seconds = match enzym_name.to_lowercase().as_str() {
+                    "trypsin" => digester.process_file(enzym_name),
+                    _ => digester.process_file(enzym_name)
                 };
-                results_for_digest_and_commit = file_handler.process_file();
-                println!(
-                    "{:<20}{:<20}",
-                    "type",
-                    "comitted"
-                );
-                println!(
-                    "{:<20}{:<20}",
-                    "proteins",
-                    results_for_digest_and_commit.0
-                );
-                println!(
-                    "{:<20}{:<20}",
-                    "peptides",
-                    results_for_digest_and_commit.1
-                );
-                println!(
-                    "{:<20}{:<20}",
-                    "commit time",
-                    results_for_digest_and_commit.2
-                );
+                println!("need {} days", seconds / 60.0 / 60.0 / 24.0)
             },
             _ => println!("ERROR [digest]: Input format unknown.")
         }
