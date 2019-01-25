@@ -149,7 +149,6 @@ CREATE TABLE peptides_1 PARTITION OF peptides FOR VALUES FROM (2014015051) TO (1
 -- CREATE TABLE peptides_99 PARTITION OF peptides FOR VALUES FROM ('11180931068') TO ('12000000000');
 
 -- peptides indices
-CREATE INDEX peptide_aa_sequence_idx ON peptides (aa_sequence);
 CREATE INDEX peptide_length_idx ON peptides (length);
 CREATE INDEX peptide_r_count_idx ON peptides (r_count);
 CREATE INDEX peptide_n_count_idx ON peptides (n_count);
