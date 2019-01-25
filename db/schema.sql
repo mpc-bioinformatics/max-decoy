@@ -3,7 +3,8 @@ CREATE TABLE proteins (
     id BIGSERIAL PRIMARY KEY,
     accession VARCHAR(10) UNIQUE NOT NULL,
     header TEXT NOT NULL,
-    aa_sequence TEXT NOT NULL
+    aa_sequence TEXT NOT NULL,
+    is_completely_digested BOOLEAN NOT NULL
 );
 
 -- protein indices
