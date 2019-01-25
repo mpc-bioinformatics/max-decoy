@@ -54,6 +54,10 @@ impl Protein {
         return format!("{}\n{}\n", self.header, self.aa_sequence);
     }
 
+    pub fn is_completely_digested(&self) -> bool {
+        return self.is_completely_digested;
+    }
+
     pub fn set_is_completely_digested(&mut self, is_completely_digested: bool) {
         self.is_completely_digested = is_completely_digested;
     }
