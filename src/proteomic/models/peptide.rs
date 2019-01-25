@@ -22,8 +22,8 @@ pub struct Peptide {
 }
 
 impl Peptide {
-    pub fn new(aa_sequence: String, digest_enzym: String, number_of_missed_cleavages: i16) -> Peptide {
-        let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(&aa_sequence);
+    pub fn new(aa_sequence: &str, digest_enzym: &str, number_of_missed_cleavages: i16) -> Peptide {
+        let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(aa_sequence);
         let mut amino_acids_counts: HashMap<char, i16> = HashMap::new();
         for one_letter_code in AMINO_ACIDS_FOR_COUNTING {
             amino_acids_counts.insert(*one_letter_code, generalized_aa_sequence.matches(*one_letter_code).count() as i16);
@@ -33,7 +33,7 @@ impl Peptide {
             length: generalized_aa_sequence.len() as i32,
             weight: AminoAcid::get_sequence_weight(&generalized_aa_sequence),
             aa_sequence: generalized_aa_sequence,
-            digest_enzym: digest_enzym,
+            digest_enzym: digest_enzym.to_owned(),
             number_of_missed_cleavages: number_of_missed_cleavages,
             amino_acids_counts: amino_acids_counts
         }
