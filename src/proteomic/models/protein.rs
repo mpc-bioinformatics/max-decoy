@@ -1,39 +1,31 @@
-extern crate onig;
-extern crate postgres;
-
 use std::hash::{Hash, Hasher};
 
-use self::postgres::Connection;
-
-use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
+use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError};
 
 pub struct Protein {
-    id: i64,                // BIGSERIAL
-    accession: String,      // CHAR(10)
-    header: String,         // TEXT
-    aa_sequence: String     // TEXT
+    id: i64,                        // BIGSERIAL
+    accession: String,              // CHAR(10)
+    header: String,                 // TEXT
+    aa_sequence: String,            // TEXT
+    is_completely_digested: bool    // BOOLEAN
 }
 
 impl Protein {
-    pub fn new(header: String, aa_sequence: String) -> Protein {
+    pub fn new(header: &str, aa_sequence: &str) -> Protein {
         return Protein {
             id: 0,
-            accession: Protein::extract_accession_from_header(&header),
-            header: header,
-            aa_sequence: aa_sequence
+            accession: Protein::extract_accession_from_header(header),
+            header: header.to_owned(),
+            aa_sequence: aa_sequence.to_owned(),
+            is_completely_digested: false
         }
     }
 
-    pub fn is_new(&self) -> bool {
-        return self.id < 1;
-    }
-
-
-    pub fn extract_accession_from_header(header: &String) -> String {
+    pub fn extract_accession_from_header(header: &str) -> String {
         // return String::from(Regex::new(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}").unwrap().find(header.as_str()).unwrap().as_str())
         // onigurma has nothing like the original regex::Regex.find
         let accession_regex = onig::Regex::new(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}").unwrap();
-        let pos = accession_regex.find(header.as_str());
+        let pos = accession_regex.find(header);
         match pos {
             Some((beg, end)) =>
                 return String::from(&header[beg..end]),
@@ -42,16 +34,16 @@ impl Protein {
         }
     }
 
-    pub fn get_aa_sequence(&self) -> &String {
-        return &self.aa_sequence;
+    pub fn get_aa_sequence(&self) -> &str {
+        return self.aa_sequence.as_str();
     }
 
-    pub fn get_accession(&self) -> &String {
-        return &self.accession;
+    pub fn get_accession(&self) -> &str {
+        return self.accession.as_str();
     }
 
-    pub fn get_header(&self) -> &String {
-        return &self.header;
+    pub fn get_header(&self) -> &str {
+        return self.header.as_str();
     }
 
     pub fn to_string(&self) -> String {
@@ -60,6 +52,10 @@ impl Protein {
 
     pub fn as_fasta_entry(&self) -> String {
         return format!("{}\n{}\n", self.header, self.aa_sequence);
+    }
+
+    pub fn set_is_completely_digested(&mut self, is_completely_digested: bool) {
+        self.is_completely_digested = is_completely_digested;
     }
 }
 
@@ -70,7 +66,8 @@ impl Persistable<Protein, i64, String> for Protein {
                 id: row.get(0),
                 accession: row.get(1),
                 header: row.get(2),
-                aa_sequence: row.get(3)
+                aa_sequence: row.get(3),
+                is_completely_digested: row.get(4)
             }
         )
     }
@@ -98,21 +95,21 @@ impl Persistable<Protein, i64, String> for Protein {
     fn find_query() -> &'static str {
         return "SELECT * FROM proteins WHERE id = $1 LIMIT 1;";
     }
-    
+
     fn create_query() -> &'static str {
-        return "INSERT INTO proteins (accession, header, aa_sequence) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING id;";
+        return "INSERT INTO proteins (accession, header, aa_sequence, is_completely_digested) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING id;";
     }
 
     fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
-        return Box::new(vec![&self.accession, &self.header, &self.aa_sequence]);
+        return Box::new(vec![&self.accession, &self.header, &self.aa_sequence, &self.is_completely_digested]);
     }
 
     fn update_query() -> &'static str{
-        return "UPDATE proteins SET accession = $2, header = $3, aa_sequence = $4 WHERE id = $1;";
+        return "UPDATE proteins SET accession = $2, header = $3, aa_sequence = $4, is_completely_digested = $5 WHERE id = $1;";
     }
 
     fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
-        return Box::new(vec![&self.id, &self.accession, &self.header, &self.aa_sequence]);
+        return Box::new(vec![&self.id, &self.accession, &self.header, &self.aa_sequence, &self.is_completely_digested]);
     }
 
     fn delete_query() -> &'static str {
