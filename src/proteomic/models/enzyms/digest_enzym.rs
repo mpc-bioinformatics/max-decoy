@@ -72,16 +72,16 @@ pub trait DigestEnzym<'e> {
                                 Ok(_) => (),
                                 Err(err_message) => match try {
                                     1 => {
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason: {}", peptide.get_aa_sequence(), err_message));
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason:\n\t{}", peptide.get_aa_sequence(), err_message));
                                         thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
                                     }
                                     2 =>{
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason: {}", peptide.get_aa_sequence(), err_message));
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 2. try. reason:\n\t{}", peptide.get_aa_sequence(), err_message));
                                         thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
                                     }
                                     3 => {
                                         summary.set_unsolveable_errors_occured();
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 1. try. reason: {}", peptide.get_aa_sequence(), err_message));
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for peptide {} failed on 3. try. reason:\n\t{}", peptide.get_aa_sequence(), err_message));
                                         summary.log_push(local_log.join("\n").as_str());
                                     }
                                     _ => ()
@@ -90,8 +90,7 @@ pub trait DigestEnzym<'e> {
                         }
                     }
                 } else {
-                    break 'missed_cleavage_loop;
-                }
+                    break 'missed_cleavage_loop;\n\t                }
             }
         }
         return summary;
