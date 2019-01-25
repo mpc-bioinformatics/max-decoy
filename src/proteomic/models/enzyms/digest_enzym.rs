@@ -66,7 +66,7 @@ pub trait DigestEnzym<'e> {
                     new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
                     if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
                         let mut local_log: Vec<String> = Vec::new();
-                        let mut peptide = Peptide::new(new_peptide_aa_sequence.as_str(), self.get_shortcut(), number_of_missed_cleavages);
+                        let mut peptide = Peptide::new(new_peptide_aa_sequence.as_str(), number_of_missed_cleavages);
                         for try in 1..=3 {
                             match self.create_peptide_and_association(&mut summary, protein, &mut peptide) {
                                 Ok(_) => (),

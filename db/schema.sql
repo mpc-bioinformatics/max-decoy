@@ -1,7 +1,7 @@
 -- proteins
 CREATE TABLE proteins (
     id BIGSERIAL PRIMARY KEY,
-    accession CHAR(10) UNIQUE NOT NULL,
+    accession VARCHAR(10) UNIQUE NOT NULL,
     header TEXT NOT NULL,
     aa_sequence TEXT NOT NULL
 );
@@ -16,7 +16,6 @@ CREATE TABLE peptides (
     length INTEGER NOT NULL,
     number_of_missed_cleavages SMALLINT NOT NULL,
     weight BIGINT NOT NULL,
-    digest_enzym CHAR(5) NOT NULL,
     r_count SMALLINT DEFAULT 0 NOT NULL,
     n_count SMALLINT DEFAULT 0 NOT NULL,
     d_count SMALLINT DEFAULT 0 NOT NULL,
