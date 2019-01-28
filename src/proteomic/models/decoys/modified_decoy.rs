@@ -1,6 +1,3 @@
-extern crate postgres;
-
-
 use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -17,7 +14,7 @@ use proteomic::utility::database_connection::DatabaseConnection;
 pub struct ModifiedDecoy {
     id: i64,                                        // SERIAL, primary key
     base_decoy_id: i64,                             // BIGINT REFERENCE, part of UNIQUE-constraints
-    base_decoy: BaseDecoy,                          
+    base_decoy: BaseDecoy,
     modifications: Vec<Modification>,
     modification_ids: Array<i64>,                   // BIGINT ARRAY, indexed
     weight: i64,                                    // BIGINT
@@ -76,7 +73,7 @@ impl ModifiedDecoy {
     fn modifications_from_psql_array(conn: &postgres::Connection, modification_ids: &Array<i64>) -> Result<Vec<Modification>, QueryError> {
         // cast ids to string and join them with ', '
         let modification_ids_for_query: String = modification_ids.iter().map(|id| id.to_string()).collect::<Vec<String>>().join(", ");
-        // condition for 'SELECT amino_acid_modifications WHERE id IN (id1, id2, ...)' 
+        // condition for 'SELECT amino_acid_modifications WHERE id IN (id1, id2, ...)'
         let condition: String = format!("id IN ({})", modification_ids_for_query);
         let modifications = match Modification::find_where(conn, condition.as_str(), &[]) {
             Ok(modifications) => modifications,
@@ -105,14 +102,14 @@ impl ModifiedDecoy {
     }
 
     /// Creates PlainDecoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `row` - row must contain [base_decoy.aa_sequence, base_decoy.header, modified_decoy.modification_summary, modified_decoy.weight] in this order
     fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
         return PlainDecoy::new(
             format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
-            &row.get::<usize, String>(0), 
+            &row.get::<usize, String>(0),
             &row.get(3)
         );
     }
@@ -120,9 +117,9 @@ impl ModifiedDecoy {
     /// Works like find_where() but to save resources it does not create ModifiedDecoys with all Modification first but
     /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a PlainDecoy.
     /// Make sure that the number of $x used in `condition` are the same as elements in `values`.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `conn` - Connection to Postgres
     /// * `condition` - WHERE-condition e.g. modified_decoy.weight BETWEEN $1 AND $2
     /// * `values` - e.g. [1000, 2000] for conditions example
@@ -288,7 +285,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for ModifiedDecoy {
     fn eq(&self, other: &ModifiedDecoy) -> bool {
-       return (self.get_aa_sequence() == *other.get_aa_sequence()) 
+       return (self.get_aa_sequence() == *other.get_aa_sequence())
         & (self.weight == other.get_weight())
         & (self.get_header() == *other.get_header());
     }
