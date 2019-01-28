@@ -241,7 +241,7 @@ impl ModifiedPeptide {
 
     pub fn as_base_decoy(&self) -> BaseDecoy {
         return BaseDecoy::new(
-            self.get_header(),
+            self.get_header().as_str(),
             self.get_aa_sequence().as_str()
         )
     }
@@ -524,7 +524,7 @@ impl ModifiedPeptide {
         return false;
     }
 
-    fn try_variable_modifications(&mut self, conn: &postgres::Connection, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
+    pub fn try_variable_modifications(&mut self, conn: &postgres::Connection, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
         let mut modification_positions: Vec<(usize, char)> = Vec::new();
         for (idx, one_letter_code) in self.aa_sequence.iter().enumerate() {
             if varibale_modification_map.contains_key(one_letter_code) {
@@ -616,8 +616,8 @@ impl PeptideInterface for ModifiedPeptide {
         );
     }
 
-    fn get_header(&self) -> &str {
-        return self.header.as_str();
+    fn get_header(&self) -> String {
+        return self.header.clone();
     }
 
     fn get_aa_sequence(&self) -> String {

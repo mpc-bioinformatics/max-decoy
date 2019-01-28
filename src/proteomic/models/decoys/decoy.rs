@@ -60,8 +60,8 @@ impl PeptideInterface for Decoy {
         );
     }
 
-    fn get_header(&self) -> &str {
-        return self.header.as_str();
+    fn get_header(&self) -> String {
+        return self.header.clone();
     }
 
     fn get_aa_sequence(&self) -> String {
@@ -101,7 +101,7 @@ impl PeptideInterface for Decoy {
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for Decoy {
     fn eq(&self, other: &Decoy) -> bool {
-       return self.header.eq(other.get_header())
+       return self.header.eq(&other.get_header())
         & self.aa_sequence.eq(&other.get_aa_sequence())
         & (self.weight == other.get_weight());
     }

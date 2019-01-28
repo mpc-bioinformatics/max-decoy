@@ -5,7 +5,7 @@ use std::string::ToString;
 /// Peptides are all kinds of amino acids subsequences like Peptide, Decoy, ModifiedPeptides and ModifiedDecoy
 pub trait PeptideInterface {
     fn to_string(&self) -> String;
-    fn get_header(&self) -> &str;
+    fn get_header(&self) -> String;
     fn get_aa_sequence(&self) -> String;
     fn get_weight(&self) -> i64;
     fn get_length(&self) -> i32;

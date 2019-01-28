@@ -156,8 +156,8 @@ impl PeptideInterface for ModifiedDecoy {
         );
     }
 
-    fn get_header(&self) -> &str {
-        return self.header.as_str();
+    fn get_header(&self) -> String {
+        return self.header.clone();
     }
 
     fn get_aa_sequence(&self) -> String {
