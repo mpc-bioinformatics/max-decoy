@@ -5,36 +5,15 @@ use std::hash::{Hash, Hasher};
 use proteomic::models::persistable::{Persistable, QueryError};
 use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::decoys::modified_decoy::ModifiedDecoy;
+use proteomic::models::peptides::peptide_interface::PeptideInterface;
 
-pub trait Decoy {
-    fn to_string(&self) -> String;
-    fn get_header(&self) -> String;
-    fn get_aa_sequence(&self) -> String;
-    fn get_weight(&self) -> i64;
-    fn get_length(&self) -> i32;
-    // returns the last char of aa_sequence
-    // or '_' if aa_sequence is empty
-    fn get_c_terminus_amino_acid(&self) -> char;
-    // returns the first char of aa_sequence
-    // or '_' if aa_sequence is empty
-    fn get_n_terminus_amino_acid(&self) -> char;
-    // returns the n-th char of aa_sequence
-    // or '_' if idx is larger the aa_sequence
-    fn get_amino_acid_at(&self, idx: usize) -> char;
-
-    fn as_fasta_entry(&self) -> String {
-        return format!("{}\n{}", self.get_header(), self.get_aa_sequence());
-    }
-}
-
-
-pub struct PlainDecoy {
+pub struct Decoy {
     header: String,
     aa_sequence: String,
     weight: i64
 }
 
-impl PlainDecoy {
+impl Decoy {
     pub fn new(header: &str, aa_sequence: &str, weight: &i64) -> Self {
         return Self {
             header: header.to_owned(),
@@ -71,7 +50,7 @@ impl PlainDecoy {
     }
 }
 
-impl Decoy for PlainDecoy {
+impl PeptideInterface for Decoy {
     fn to_string(&self) -> String {
         return format!(
             "proteomic::models::decoys::decoy::PlainDecoy\n\theader => {}\n\taa_sequence => {}\n\tweight => {}",
@@ -81,8 +60,8 @@ impl Decoy for PlainDecoy {
         );
     }
 
-    fn get_header(&self) -> String {
-        return self.header.clone();
+    fn get_header(&self) -> &str {
+        return self.header.as_str();
     }
 
     fn get_aa_sequence(&self) -> String {
@@ -120,19 +99,19 @@ impl Decoy for PlainDecoy {
 }
 
 // PartialEq-implementation to use this type in a HashSet
-impl PartialEq for PlainDecoy {
-    fn eq(&self, other: &PlainDecoy) -> bool {
-       return self.header.eq(&other.get_header())
+impl PartialEq for Decoy {
+    fn eq(&self, other: &Decoy) -> bool {
+       return self.header.eq(other.get_header())
         & self.aa_sequence.eq(&other.get_aa_sequence())
         & (self.weight == other.get_weight());
     }
 }
 
 // Eq-implementation to use this type in a HashSet
-impl Eq for PlainDecoy {}
+impl Eq for Decoy {}
 
 // Hash-implementation to use this type in a HashSet
-impl Hash for PlainDecoy {
+impl Hash for Decoy {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.header.hash(state);
         self.aa_sequence.hash(state);
