@@ -1,6 +1,6 @@
 use proteomic::models::enzyms::digest_enzym::DigestEnzym;
 use proteomic::models::persistable::{Persistable, handle_postgres_error};
-use proteomic::models::peptide::Peptide;
+use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 
 

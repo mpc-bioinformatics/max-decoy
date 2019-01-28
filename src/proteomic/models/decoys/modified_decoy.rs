@@ -4,11 +4,12 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 use postgres_array::Array;
 
-use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
+use proteomic::models::decoys::decoy::Decoy;
 use proteomic::models::decoys::base_decoy::BaseDecoy;
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, FromSqlRowError};
 use proteomic::models::amino_acids::modification::Modification;
 use proteomic::models::mass;
+use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::utility::database_connection::DatabaseConnection;
 
 pub struct ModifiedDecoy {
@@ -18,7 +19,8 @@ pub struct ModifiedDecoy {
     modifications: Vec<Modification>,
     modification_ids: Array<i64>,                   // BIGINT ARRAY, indexed
     weight: i64,                                    // BIGINT
-    modification_summary: String                    // TEXT, part of UNIQUE-constraints
+    modification_summary: String,                   // TEXT, part of UNIQUE-constraints
+    header: String
 }
 
 impl ModifiedDecoy {
@@ -26,6 +28,7 @@ impl ModifiedDecoy {
         let modification_summary = Self::create_modification_summary(modifications);
         return Self {
             id: 0,
+            header: format!("{} ModSum={}", base_decoy.get_header(), modification_summary.as_str()),
             base_decoy_id: base_decoy.get_primary_key(),
             base_decoy: base_decoy.clone(),
             modification_ids: *Self::modifications_to_psql_array(modifications),
@@ -101,13 +104,13 @@ impl ModifiedDecoy {
         return &self.modification_ids;
     }
 
-    /// Creates PlainDecoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
+    /// Creates Decoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
     ///
     /// # Arguments
     ///
     /// * `row` - row must contain [base_decoy.aa_sequence, base_decoy.header, modified_decoy.modification_summary, modified_decoy.weight] in this order
-    fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
-        return PlainDecoy::new(
+    fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> Decoy {
+        return Decoy::new(
             format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
             &row.get::<usize, String>(0),
             &row.get(3)
@@ -115,7 +118,7 @@ impl ModifiedDecoy {
     }
 
     /// Works like find_where() but to save resources it does not create ModifiedDecoys with all Modification first but
-    /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a PlainDecoy.
+    /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a Decoy.
     /// Make sure that the number of $x used in `condition` are the same as elements in `values`.
     ///
     /// # Arguments
@@ -123,7 +126,7 @@ impl ModifiedDecoy {
     /// * `conn` - Connection to Postgres
     /// * `condition` - WHERE-condition e.g. modified_decoy.weight BETWEEN $1 AND $2
     /// * `values` - e.g. [1000, 2000] for conditions example
-    pub fn find_where_as_plain_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<PlainDecoy>, QueryError> {
+    pub fn find_where_as_plain_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Decoy>, QueryError> {
         let select_query: String = format!(
             "SELECT {base_decoys_table}.aa_sequence, {base_decoys_table}.header, {modified_decoys_table}.modification_summary, {modified_decoys_table}.weight FROM {modified_decoys_table} INNER JOIN base_decoys ON {modified_decoys_table}.base_decoy_id={base_decoys_table}.id WHERE {conditions};",
             modified_decoys_table = Self::get_table_name(),
@@ -132,7 +135,7 @@ impl ModifiedDecoy {
         );
         match conn.query(select_query.as_str(), values) {
             Ok(ref rows) => {
-                let mut records: Vec<PlainDecoy> = Vec::new();
+                let mut records: Vec<Decoy> = Vec::new();
                 for row in rows {
                     records.push(Self::plain_decoy_from_sql_row(&row));
                 }
@@ -143,7 +146,7 @@ impl ModifiedDecoy {
     }
 }
 
-impl Decoy for ModifiedDecoy {
+impl PeptideInterface for ModifiedDecoy {
     fn to_string(&self) -> String {
         return format!(
             "proteomic::modes::decoys::modified_decoy::ModifiedDecoy\n\theader => {}\n\taa_sequence => {}\n\tweight => {}",
@@ -153,16 +156,12 @@ impl Decoy for ModifiedDecoy {
         );
     }
 
-    fn get_header(&self) -> String {
-        return format!(
-            "{} ModSum={}",
-            self.base_decoy.get_header(),
-            self.modification_summary
-        )
+    fn get_header(&self) -> &str {
+        return self.header.as_str();
     }
 
     fn get_aa_sequence(&self) -> String {
-        return self.base_decoy.get_aa_sequence();
+        return self.base_decoy.get_aa_sequence().to_owned();
     }
 
     fn get_weight(&self) -> i64 {
@@ -207,6 +206,7 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
         return Ok (
             Self {
                 id: row.get(0),
+                header: format!("{} ModSum={}", base_decoy.get_header(), row.get::<usize, String>(4)),
                 base_decoy_id: base_decoy.get_primary_key(),
                 base_decoy: base_decoy,
                 modification_ids: modification_ids,
@@ -285,9 +285,9 @@ impl Persistable<ModifiedDecoy, i64, (i64, i64, i64, &Array<i64>, i64)> for Modi
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for ModifiedDecoy {
     fn eq(&self, other: &ModifiedDecoy) -> bool {
-       return (self.get_aa_sequence() == *other.get_aa_sequence())
+       return (self.get_aa_sequence() == other.get_aa_sequence())
         & (self.weight == other.get_weight())
-        & (self.get_header() == *other.get_header());
+        & (self.get_header() == other.get_header());
     }
 }
 
@@ -311,7 +311,8 @@ impl Clone for ModifiedDecoy {
             modification_ids: self.modification_ids.clone(),
             modifications: self.modifications.clone(),
             weight: self.get_weight(),
-            modification_summary: self.modification_summary.clone()
+            modification_summary: self.modification_summary.clone(),
+            header: self.header.clone()
         }
     }
 }

@@ -7,10 +7,10 @@ use threadpool::ThreadPool;
 
 use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
-use proteomic::models::peptide::Peptide;
+use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::decoys::decoy::Decoy;
 use proteomic::models::persistable::{Persistable, QueryError};
-use proteomic::models::decoys::new_decoy::{NewDecoy, PushAminoAcidOk};
+use proteomic::models::peptides::modified_peptide::{ModifiedPeptide as NewDecoy, PushAminoAcidOk};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_DECOY_GENERATION;
 use proteomic::models::amino_acids::modification::Modification;
@@ -116,7 +116,7 @@ impl DecoyGenerator {
                         break 'decoy_loop;
                     }
                     // create new empty decoy
-                    let mut new_decoy: NewDecoy = NewDecoy::new(precursor_mass, lower_weight_limit, upper_weight_limit);
+                    let mut new_decoy: NewDecoy = NewDecoy::new_decoy(precursor_mass, lower_weight_limit, upper_weight_limit);
                     // let distribution_array = *Self::generate_amino_acid_distribution_array();
                     // repeat until new_decoy's weight greate then upper weight limit
                     'amino_acid_loop: loop {
@@ -172,7 +172,7 @@ impl DecoyGenerator {
                         _ => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not check if shuffled target is peptide: {}", err)
                     }
                 }
-                let mut new_decoy: NewDecoy = NewDecoy::from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
+                let mut new_decoy: NewDecoy = NewDecoy::decoy_from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
                 //decoy_counter += new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, &self.one_amino_acid_substitute_map, &self.fixed_modification_map, self.max_modifications_per_decoy, &self.variable_modification_map);
                 if new_decoy.create(&conn) { decoy_counter += 1 };
                 if decoy_counter == number_of_decoys_to_generate { break 'shuffle_loop; }

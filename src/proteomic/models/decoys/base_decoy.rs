@@ -2,10 +2,11 @@ extern crate postgres;
 
 use std::hash::{Hash, Hasher};
 
-use proteomic::models::decoys::decoy::{Decoy, PlainDecoy};
+use proteomic::models::decoys::decoy::Decoy;
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, FromSqlRowError};
 use proteomic::models::mass;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
+use proteomic::models::peptides::peptide_interface::PeptideInterface;
 
 pub struct BaseDecoy {
     id: i64,                            // BIGSERIAL
@@ -26,13 +27,13 @@ impl BaseDecoy {
         }
     }
 
-    /// Creates PlainDecoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
+    /// Creates Decoy from postgres::rows::Row. Created for `find_where_as_plain_decoys()`.
     ///
     /// # Arguments
     ///
     /// * `row` - row must contain [header, aa_sequence, weight] in this order
-    fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> PlainDecoy {
-        return PlainDecoy::new(
+    fn plain_decoy_from_sql_row(row: &postgres::rows::Row) -> Decoy {
+        return Decoy::new(
             format!("{} {}", row.get::<usize, String>(1), row.get::<usize, String>(2)).as_str(),
             &row.get::<usize, String>(0),
             &row.get(3)
@@ -40,7 +41,7 @@ impl BaseDecoy {
     }
 
     /// Works like find_where() but to save resources it does not create ModifiedDecoys with all Modification first but
-    /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a PlainDecoy.
+    /// uses JOIN to get only attributes from BaseDecoys and ModifiedDecoys which are necessary for building a Decoy.
     /// Make sure that the number of $x used in `condition` are the same as elements in `values`.
     ///
     /// # Arguments
@@ -48,12 +49,12 @@ impl BaseDecoy {
     /// * `conn` - Connection to Postgres
     /// * `condition` - WHERE-condition e.g. modified_decoy.weight BETWEEN $1 AND $2
     /// * `values` - e.g. [1000, 2000] for conditions example
-    pub fn find_where_as_plain_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<PlainDecoy>, QueryError> {
+    pub fn find_where_as_plain_decoys(conn: &postgres::Connection, conditions: &str, values: &[&postgres::types::ToSql]) -> Result<Vec<Decoy>, QueryError> {
         let select_query: String = format!("SELECT header, aa_sequence, weight FROM {} WHERE {};", Self::get_table_name(), conditions);
         println!("{}", select_query);
         match conn.query(select_query.as_str(), values) {
             Ok(ref rows) => {
-                let mut records: Vec<PlainDecoy> = Vec::new();
+                let mut records: Vec<Decoy> = Vec::new();
                 for row in rows {
                     records.push(Self::plain_decoy_from_sql_row(&row));
                 }
@@ -64,7 +65,7 @@ impl BaseDecoy {
     }
 }
 
-impl Decoy for BaseDecoy {
+impl PeptideInterface for BaseDecoy {
     fn to_string(&self) -> String {
         return format!(
             "proteomic::modes::decoys::base_decoy::BaseDecoy\n\theader => {}\n\taa_sequence => {}\n\tweight => {}",
@@ -74,8 +75,8 @@ impl Decoy for BaseDecoy {
         );
     }
 
-    fn get_header(&self) -> String {
-        return self.header.clone();
+    fn get_header(&self) -> &str {
+        return self.header.as_str();
     }
 
     fn get_aa_sequence(&self) -> String {

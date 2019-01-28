@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryOk};
 use proteomic::models::protein::Protein;
-use proteomic::models::peptide::Peptide;
+use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::enzyms::digest_summary::DigestSummary;

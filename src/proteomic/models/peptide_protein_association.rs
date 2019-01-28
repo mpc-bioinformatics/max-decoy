@@ -1,9 +1,5 @@
-extern crate postgres;
-
-use self::postgres::Connection;
-
 use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
-use proteomic::models::peptide::Peptide;
+use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::protein::Protein;
 
 pub struct PeptideProteinAssociation {
