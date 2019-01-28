@@ -233,7 +233,7 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
 }
 
 
-fn run_samino_acid_substitution(substitution_cli_args: &clap::ArgMatches) {
+fn run_amino_acid_substitution(substitution_cli_args: &clap::ArgMatches) {
     let modification_csv_file: String = match substitution_cli_args.value_of("MODIFICATION_FILE") {
         Some(modification_csv_file) => modification_csv_file.to_owned(),
         None => String::new()
@@ -481,7 +481,7 @@ fn main() {
         run_spectrum_splitup(cli_args)
     }
     if let Some(cli_args) = matches.subcommand_matches("amino-acid-substitution") {
-        run_samino_acid_substitution(cli_args)
+        run_amino_acid_substitution(cli_args)
     }
 }
 
