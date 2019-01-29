@@ -20,6 +20,8 @@ use proteomic::utility::decoy_generator::DecoyGenerator;
 use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
 
+use proteomic::tasks::indentification::{identification_task, IdentificationArguments};
+
 use proteomic::models::amino_acids::modification::Modification;
 use proteomic::models::mass;
 
@@ -301,6 +303,12 @@ fn run_spectrum_splitup(mz_ml_splitup_cli_args: &clap::ArgMatches) {
     println!("found and write {} MS2-spectra in {} s", spectra.len(), stop_time - start_time);
 }
 
+/// Splits up the given mzML-file into mzML-files containing a single MS2-spectrum and writes them into the given destination folder
+fn run_identification(cli_args: &clap::ArgMatches) {
+    let ident_args = IdentificationArguments::from_cli_args(cli_args);
+    identification_task(&ident_args);
+}
+
 fn main() {
     let matches = App::new("Peptide Magic")
     .version("1.0")
@@ -468,6 +476,64 @@ fn main() {
             .takes_value(true)
         )
     )
+    .subcommand(
+        SubCommand::with_name("identification")
+        .arg(
+            Arg::with_name("MODIFICATION_FILE")
+            .short("m")
+            .long("modification-file")
+            .value_name("INPUT_FILE")
+            .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("SPECTRUM_FILE")
+            .short("m")
+            .long("spectrum-file")
+            .value_name("SPECTRUM_FILE")
+            .takes_value(true)
+            .help("mzML-file")
+        )
+        .arg(
+            Arg::with_name("MAX_NUMBER_OF_VARIABLE_MODIFICATION_PER_PEPTIDE")
+            .short("n")
+            .long("max-number-of-variable-modification-per-peptide")
+            .value_name("MAX_NUMBER_OF_VARIABLE_MODIFICATION_PER_PEPTIDE")
+            .takes_value(true)
+            .help("Integer, Default: 0")
+        )
+        .arg(
+            Arg::with_name("NUMBER_OF_DECOYS_PER_TARGET")
+            .short("d")
+            .long("number-of-decoys-per-target")
+            .value_name("NUMBER_OF_DECOYS_PER_TARGET")
+            .takes_value(true)
+            .help("Integer, Default: 1000")
+        )
+        .arg(
+            Arg::with_name("LOWER_MASS_TOLERANCE")
+            .short("l")
+            .long("lower-mass-tolerance")
+            .value_name("LOWER_MASS_TOLERANCE")
+            .takes_value(true)
+            .help("Integer, Unit: ppm, Default: 5")
+        )
+        .arg(
+            Arg::with_name("UPPER_MASS_TOLERANCE")
+            .short("u")
+            .long("upper-mass-tolerance")
+            .value_name("UPPER_MASS_TOLERANCE")
+            .takes_value(true)
+            .help("Integer, Unit: ppm, Default: 5")
+        )
+        .arg(
+            Arg::with_name("THREAD_COUNT")
+            .short("t")
+            .long("thread-count")
+            .value_name("THREAD_COUNT")
+            .takes_value(true)
+            .help("Integer, Default: 2")
+        )
+    )
     .get_matches();
 
 
@@ -482,6 +548,9 @@ fn main() {
     }
     if let Some(cli_args) = matches.subcommand_matches("amino-acid-substitution") {
         run_amino_acid_substitution(cli_args)
+    }
+    if let Some(cli_args) = matches.subcommand_matches("identification") {
+        run_identification(cli_args);
     }
 }
 
