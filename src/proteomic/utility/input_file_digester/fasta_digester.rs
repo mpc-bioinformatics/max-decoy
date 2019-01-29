@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use threadpool::ThreadPool;
 
@@ -24,7 +24,7 @@ pub struct FastaDigester {
     max_peptide_length: usize,
     message_logger: Arc<AsyncQueuedLogger>,
     unsuccessful_protein_logger: Arc<AsyncQueuedLogger>,
-    performance_logger: Arc<AsyncPerformanceLogger>
+    performance_logger: Arc<Mutex<AsyncPerformanceLogger>>
 }
 
 // <E: DigestEnzym + Clone + Send + 'static>
@@ -38,7 +38,7 @@ impl FileDigester for FastaDigester {
             max_peptide_length: max_peptide_length,
             message_logger: Arc::new(AsyncQueuedLogger::new("./digest.log")),
             unsuccessful_protein_logger: Arc::new(AsyncQueuedLogger::new("./unsuccessful_proteins.log.fasta")),
-            performance_logger: Arc::new(AsyncPerformanceLogger::new("./digest_performance.csv"))
+            performance_logger: Arc::new(Mutex::new(AsyncPerformanceLogger::new("./digest_performance.csv")))
         }
     }
 
@@ -53,7 +53,11 @@ impl FileDigester for FastaDigester {
         let mut aa_sequence = String::new();
 
         // start
-        self.performance_logger.start_logging();
+
+        match self.performance_logger.lock() {
+            Ok(mut logger) => logger.start_logging(),
+            Err(_) => println!("proteomic::utility::input_file_digester::fasta_digester.process_file(): Try to lock poisened mutex for performance logger, performance log not working")
+        }
 
         let start_time: f64 = time::precise_time_s();
         for line in fasta_file.lines() {
@@ -87,14 +91,17 @@ impl FileDigester for FastaDigester {
                                 unsuccessful_protein_logger_ptr.push_back(protein.as_fasta_entry());
                                 message_logger_ptr.push_back(summary.get_log());
                             }
-                            performance_logger_ptr.increase_counter_by(
-                                if summary.get_created_protein() { 1 } else { 0 },
-                                1,
-                                summary.get_number_of_created_peptides(),
-                                summary.get_number_of_created_peptide_protein_associations(),
-                                summary.get_number_of_created_peptides(),
-                                summary.get_number_of_created_peptide_protein_associations(),
-                            );
+                            match performance_logger_ptr.lock() {
+                                Ok(logger) => logger.increase_counter_by(
+                                        if summary.get_created_protein() { 1 } else { 0 },
+                                        1,
+                                        summary.get_number_of_created_peptides(),
+                                        summary.get_number_of_created_peptide_protein_associations(),
+                                        summary.get_number_of_created_peptides(),
+                                        summary.get_number_of_created_peptide_protein_associations(),
+                                    ),
+                                Err(_) => println!("proteomic::utility::input_file_digester::fasta_digester.process_file(): Try to lock poisened mutex for performance logger, performance log not working")
+                            };
                         }
                     });
                     aa_sequence = String::new();
@@ -113,14 +120,17 @@ impl FileDigester for FastaDigester {
                 self.unsuccessful_protein_logger.push_back(protein.as_fasta_entry());
                 self.message_logger.push_back(summary.get_log());
             }
-            self.performance_logger.increase_counter_by(
-                if summary.get_created_protein() { 1 } else { 0 },
-                1,
-                summary.get_number_of_created_peptides(),
-                summary.get_number_of_created_peptide_protein_associations(),
-                summary.get_number_of_created_peptides(),
-                summary.get_number_of_created_peptide_protein_associations(),
-            );
+            match self.performance_logger.lock() {
+                Ok(logger) => logger.increase_counter_by(
+                        if summary.get_created_protein() { 1 } else { 0 },
+                        1,
+                        summary.get_number_of_created_peptides(),
+                        summary.get_number_of_created_peptide_protein_associations(),
+                        summary.get_number_of_created_peptides(),
+                        summary.get_number_of_created_peptide_protein_associations(),
+                    ),
+                Err(_) => println!("proteomic::utility::input_file_digester::fasta_digester.process_file(): Try to lock poisened mutex for performance logger, performance log not working")
+            };
         }
         // wait for threads
         thread_pool.join();
