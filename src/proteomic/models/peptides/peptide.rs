@@ -23,29 +23,34 @@ pub struct Peptide {
     number_of_missed_cleavages: i16,        // SMALLINT
     weight: i64,                            // BIGINT
     amino_acids_counts: HashMap<char, i16>  // columns <one_letter_code>_count, type SMALLINT
+
 }
 
 impl Peptide {
     pub fn new(aa_sequence: &str, number_of_missed_cleavages: i16) -> Peptide {
         let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(aa_sequence);
-        let mut amino_acids_counts: HashMap<char, i16> = HashMap::new();
-        for one_letter_code in AMINO_ACIDS_FOR_COUNTING {
-            amino_acids_counts.insert(*one_letter_code, generalized_aa_sequence.matches(*one_letter_code).count() as i16);
-        }
         return Peptide{
             id: 0,
             length: generalized_aa_sequence.len() as i32,
             weight: AminoAcid::get_sequence_weight(&generalized_aa_sequence),
             aa_sequence: generalized_aa_sequence,
             number_of_missed_cleavages: number_of_missed_cleavages,
-            amino_acids_counts: amino_acids_counts
+            amino_acids_counts: *Self::count_amino_acids(generalized_aa_sequence.as_str())
         }
     }
 
-    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> &i16 {
+    fn count_amino_acids(aa_sequence: &str) -> Box<HashMap<char, i16>> {
+        let mut amino_acids_counts: Box<HashMap<char, i16>> = Box::new(HashMap::new());
+        for one_letter_code in AMINO_ACIDS_FOR_COUNTING {
+            amino_acids_counts.insert(*one_letter_code, aa_sequence.matches(*one_letter_code).count() as i16);
+        }
+        return amino_acids_counts;
+    }
+
+    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> i16 {
         match self.amino_acids_counts.get(amino_acid_one_letter_code) {
-            Some(count) => count,
-            None => &0,
+            Some(count) => *count,
+            None => 0,
         }
     }
 
@@ -138,26 +143,26 @@ impl Persistable<Peptide, i64, String> for Peptide {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
-            self.get_count_for_amino_acid(&'r'),
-            self.get_count_for_amino_acid(&'n'),
-            self.get_count_for_amino_acid(&'d'),
-            self.get_count_for_amino_acid(&'c'),
-            self.get_count_for_amino_acid(&'e'),
-            self.get_count_for_amino_acid(&'q'),
-            self.get_count_for_amino_acid(&'g'),
-            self.get_count_for_amino_acid(&'h'),
-            self.get_count_for_amino_acid(&'j'),
-            self.get_count_for_amino_acid(&'k'),
-            self.get_count_for_amino_acid(&'m'),
-            self.get_count_for_amino_acid(&'f'),
-            self.get_count_for_amino_acid(&'p'),
-            self.get_count_for_amino_acid(&'o'),
-            self.get_count_for_amino_acid(&'s'),
-            self.get_count_for_amino_acid(&'t'),
-            self.get_count_for_amino_acid(&'u'),
-            self.get_count_for_amino_acid(&'v'),
-            self.get_count_for_amino_acid(&'w'),
-            self.get_count_for_amino_acid(&'y')
+            &self.get_count_for_amino_acid(&'r'),
+            &self.get_count_for_amino_acid(&'n'),
+            &self.get_count_for_amino_acid(&'d'),
+            &self.get_count_for_amino_acid(&'c'),
+            &self.get_count_for_amino_acid(&'e'),
+            &self.get_count_for_amino_acid(&'q'),
+            &self.get_count_for_amino_acid(&'g'),
+            &self.get_count_for_amino_acid(&'h'),
+            &self.get_count_for_amino_acid(&'j'),
+            &self.get_count_for_amino_acid(&'k'),
+            &self.get_count_for_amino_acid(&'m'),
+            &self.get_count_for_amino_acid(&'f'),
+            &self.get_count_for_amino_acid(&'p'),
+            &self.get_count_for_amino_acid(&'o'),
+            &self.get_count_for_amino_acid(&'s'),
+            &self.get_count_for_amino_acid(&'t'),
+            &self.get_count_for_amino_acid(&'u'),
+            &self.get_count_for_amino_acid(&'v'),
+            &self.get_count_for_amino_acid(&'w'),
+            &self.get_count_for_amino_acid(&'y')
         ]);
     }
 
@@ -172,26 +177,26 @@ impl Persistable<Peptide, i64, String> for Peptide {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
-            self.get_count_for_amino_acid(&'r'),
-            self.get_count_for_amino_acid(&'n'),
-            self.get_count_for_amino_acid(&'d'),
-            self.get_count_for_amino_acid(&'c'),
-            self.get_count_for_amino_acid(&'e'),
-            self.get_count_for_amino_acid(&'q'),
-            self.get_count_for_amino_acid(&'g'),
-            self.get_count_for_amino_acid(&'h'),
-            self.get_count_for_amino_acid(&'j'),
-            self.get_count_for_amino_acid(&'k'),
-            self.get_count_for_amino_acid(&'m'),
-            self.get_count_for_amino_acid(&'f'),
-            self.get_count_for_amino_acid(&'p'),
-            self.get_count_for_amino_acid(&'o'),
-            self.get_count_for_amino_acid(&'s'),
-            self.get_count_for_amino_acid(&'t'),
-            self.get_count_for_amino_acid(&'u'),
-            self.get_count_for_amino_acid(&'v'),
-            self.get_count_for_amino_acid(&'w'),
-            self.get_count_for_amino_acid(&'y')
+            &self.get_count_for_amino_acid(&'r'),
+            &self.get_count_for_amino_acid(&'n'),
+            &self.get_count_for_amino_acid(&'d'),
+            &self.get_count_for_amino_acid(&'c'),
+            &self.get_count_for_amino_acid(&'e'),
+            &self.get_count_for_amino_acid(&'q'),
+            &self.get_count_for_amino_acid(&'g'),
+            &self.get_count_for_amino_acid(&'h'),
+            &self.get_count_for_amino_acid(&'j'),
+            &self.get_count_for_amino_acid(&'k'),
+            &self.get_count_for_amino_acid(&'m'),
+            &self.get_count_for_amino_acid(&'f'),
+            &self.get_count_for_amino_acid(&'p'),
+            &self.get_count_for_amino_acid(&'o'),
+            &self.get_count_for_amino_acid(&'s'),
+            &self.get_count_for_amino_acid(&'t'),
+            &self.get_count_for_amino_acid(&'u'),
+            &self.get_count_for_amino_acid(&'v'),
+            &self.get_count_for_amino_acid(&'w'),
+            &self.get_count_for_amino_acid(&'y')
         ]);
     }
 
