@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+
+
 use std::fmt;
 
 use rand::{thread_rng, Rng};
@@ -8,15 +11,12 @@ use proteomic::models::amino_acids::modification::{Modification, ModificationPos
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::mass;
 use proteomic::models::mass::neutral_loss::NeutralLoss;
-use proteomic::models::peptides::peptide_interface::PeptideInterface;
-use proteomic::models::decoys::base_decoy::BaseDecoy;
-use proteomic::models::decoys::modified_decoy::ModifiedDecoy;
 use proteomic::utility::combinations::n_choose_k::NChooseK;
 use proteomic::models::persistable::{Persistable, QueryOk, QueryError};
-use proteomic::models::peptides::peptide::Peptide;
+use proteomic::models::peptides::peptide_interface::PeptideInterface;
+use proteomic::models::peptides::peptide::{Peptide, PEPTIDE_HEADER_START};
+use proteomic::models::peptides::decoy::{Decoy, DECOY_HEADER_START};
 use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_DECOY_GENERATION;
-
-const DECOY_HEADER: &'static str = ">DECOY_";
 
 pub enum PushAminoAcidOk {
     LessThenMassTolerance,
@@ -44,7 +44,6 @@ impl fmt::Display for PushAminoAcidError {
     }
 }
 
-
 pub enum ModifiedPeptideError {
     ModificationDoesNotMatchToAminoAcid,       // modification does not relate to amino acid
     OutrangeMassTolerance,
@@ -71,6 +70,11 @@ impl fmt::Display for ModifiedPeptideError {
     }
 }
 
+
+enum PeptideType {
+    Peptide,
+    Decoy
+}
 
 
 pub struct ModifiedPeptide {
@@ -103,16 +107,16 @@ impl ModifiedPeptide {
         }
     }
 
-    /// Creates a new ModifiedPepitide, with header DECOY_HEADER
+    /// Creates a new ModifiedPepitide, with header DECOY_HEADER_START
     pub fn new_decoy(precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64) -> Self {
-        return Self::new(DECOY_HEADER, precursor_mass, lower_weight_limit, upper_weight_limit);
+        return Self::new(DECOY_HEADER_START, precursor_mass, lower_weight_limit, upper_weight_limit);
     }
 
     /// Creates a new ModifiedPepitide from an existing sequence,
-    /// with header DECOY_HEADER
+    /// with header DECOY_HEADER_START
     /// and respect to fix modifications
     pub fn decoy_from_string(aa_sequence: &str, precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
-        return Self::from_string(DECOY_HEADER, aa_sequence, precursor_mass, lower_weight_limit, upper_weight_limit, fix_modifications);
+        return Self::from_string(DECOY_HEADER_START, aa_sequence, precursor_mass, lower_weight_limit, upper_weight_limit, fix_modifications);
     }
 
     /// Creates a new ModifiedPepitide from an existing sequence and header
@@ -139,7 +143,13 @@ impl ModifiedPeptide {
     /// Creates a new ModifiedPepitide from a Peptide
     /// with respect to fix modifications
     pub fn from_peptide(peptide: &Peptide, precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
-        return Self::from_string(">PEPTIDE ", peptide.get_aa_sequence(), precursor_mass, lower_weight_limit, upper_weight_limit, fix_modifications);
+        return Self::from_string(PEPTIDE_HEADER_START, peptide.get_aa_sequence(), precursor_mass, lower_weight_limit, upper_weight_limit, fix_modifications);
+    }
+
+    /// Creates a new ModifiedPepitide from a Decoy
+    /// with respect to fix modifications
+    pub fn from_decoy(decoy: &Decoy, precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
+        return Self::from_string(DECOY_HEADER_START, decoy.get_aa_sequence(), precursor_mass, lower_weight_limit, upper_weight_limit, fix_modifications);
     }
 
     pub fn get_unmodified_weight(&self) -> i64 {
@@ -239,31 +249,8 @@ impl ModifiedPeptide {
         }
     }
 
-    pub fn as_base_decoy(&self) -> BaseDecoy {
-        return BaseDecoy::new(
-            self.get_header().as_str(),
-            self.get_aa_sequence().as_str()
-        )
-    }
-
-    pub fn as_modified_decoy(&self, base_decoy: &BaseDecoy) -> ModifiedDecoy {
-        let mut modifications: Vec<Modification> = Vec::new();
-        if let Some(ref modification) = self.n_terminus_modification {
-            modifications.push(modification.clone());
-        }
-        for modification_option in self.modifications.iter() {
-            if let Some(ref modification) = modification_option {
-                modifications.push(modification.clone());
-            }
-        }
-        if let Some(ref modification) = self.c_terminus_modification {
-            modifications.push(modification.clone());
-        }
-        return ModifiedDecoy::new(
-            base_decoy,
-            &modifications,
-            self.weight
-        );
+    pub fn to_decoy(&self) -> Decoy {
+        return Decoy::new(self.get_aa_sequence().as_str(), 0);
     }
 
     fn remove_c_terminus_modification(&mut self) -> Option<Modification> {
@@ -465,7 +452,9 @@ impl ModifiedPeptide {
         return Ok(());
     }
 
-    pub fn swap_amino_acids_to_hit_mass_tolerance(&mut self, conn: &postgres::Connection, amino_acid_substitute_map: &HashMap<char, HashMap<char, i64>>, fix_modifications_map: &HashMap<char, Modification>, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
+    /// Swaps amino acid until a minimum is reached.
+    /// If only a local minimum is reached, respectively the no futher swaps can applied but mass tolerance is not hit, swap one random amino acid
+    pub fn swap_amino_acids_to_hit_mass_tolerance(&mut self, amino_acid_substitute_map: &HashMap<char, HashMap<char, i64>>, fix_modifications_map: &HashMap<char, Modification>, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
         // try 100 times
         'tries: for _ in 0..100 {
             'sequence: for idx in 0..self.aa_sequence.len() {
@@ -498,11 +487,11 @@ impl ModifiedPeptide {
                             };
                         }
                         if self.hits_mass_tolerance() { return true; }
-                        if self.try_variable_modifications(conn, max_number_of_modifications, varibale_modification_map) { return true; }
+                        if self.try_variable_modifications(max_number_of_modifications, varibale_modification_map) { return true; }
                     }
                 }
             }
-            // swap one random amino acid because gthe current sequence is at it' minimum
+            // swap one random amino acid because the current sequence is at it's minimum
             let mut rng = thread_rng();
             let idx_to_swap: usize = rng.gen_range(0, self.aa_sequence.len());
             let aa_one_letter_code = self.get_amino_acid_at(idx_to_swap);
@@ -524,7 +513,10 @@ impl ModifiedPeptide {
         return false;
     }
 
-    pub fn try_variable_modifications(&mut self, conn: &postgres::Connection, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
+    /// Uses all possible combination of variable modifications until a configuration fits mass tolerance or all combinations were tried.
+    /// Returns true if configuration fits mass tolerance, false if not.
+    pub fn try_variable_modifications(&mut self, max_number_of_modifications: u8, varibale_modification_map: &HashMap<char, Modification>) -> bool {
+        // get positions of amino acids to which a variable modification exists
         let mut modification_positions: Vec<(usize, char)> = Vec::new();
         for (idx, one_letter_code) in self.aa_sequence.iter().enumerate() {
             if varibale_modification_map.contains_key(one_letter_code) {
@@ -534,8 +526,9 @@ impl ModifiedPeptide {
         for number_of_modifications in 1..=max_number_of_modifications {
             if number_of_modifications as usize <= modification_positions.len() {
                 let n_choose_k = NChooseK::new(number_of_modifications as i32, modification_positions.clone());
+                // loop through all possible modification and apply them
                 'combinations: for combination in n_choose_k.into_iter() {
-                    self.remove_all_variable_modifications();
+                    self.remove_all_variable_modifications(); // remove previous modifications
                     'positions: for position in combination {
                         if let Some(modification) = varibale_modification_map.get(&position.1) {
                             match self.set_variable_modification_at(position.0, modification) {
@@ -555,45 +548,6 @@ impl ModifiedPeptide {
         return false;
     }
 
-    pub fn create(&self, conn: &postgres::Connection) -> bool {
-        let mut result = false;
-        if self.hits_mass_tolerance() {
-            let mut base_decoy: BaseDecoy = self.as_base_decoy();
-            // check if decoy is peptide
-            match Peptide::exists_where(&conn, "aa_sequence = $1", &[&self.get_aa_sequence()]) {
-                Ok(_) => return false,
-                Err(err) => match err {
-                    QueryError::NoMatch => (),  // if no match is found continue with this decoy
-                    _ => panic!("proteomic::utility::decoy_generator.generate_decoys() could not check if decoy is peptide: {}", err)
-                }
-            }
-            match base_decoy.create(&conn) {
-                Ok(query_ok) => match query_ok {
-                    QueryOk::Created => {
-                        if self.number_of_modifications == 0 { result = true; }     // base decoy should only be counted if no modifications are applied
-                    },
-                    QueryOk::AlreadyExists => (),
-                    _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in BaseDecoy.create(), so this panic shoud not be reached.")
-                },
-                Err(err) => println!("proteomic::utility::decoy_generator::generate() when second BaseDecoy.create(): {}", err)
-            }
-            if self.number_of_modifications > 0 {
-                let mut modified_decoy = self.as_modified_decoy(&base_decoy);
-                match modified_decoy.create(&conn) {
-                    Ok(query_ok) => match query_ok {
-                        QueryOk::Created => result = true,
-                        QueryOk::AlreadyExists => (),
-                        _ => panic!("proteomic::utility::decoy_generator::generate(): In fact not other QueryOk than QueryOk::Created and QueryOk::AlreadyExists are used in BaseDecoy.create(), so this panic shoud not be reached.")
-                    },
-                    Err(err) => println!("proteomic::utility::decoy_generator::generate() when second BaseDecoy.create(): {}", err)
-                }
-            }
-        }
-        return result;
-    }
-}
-
-impl PeptideInterface for ModifiedPeptide {
     fn to_string(&self) -> String {
         return format!(
             "proteomic::modes::decoys::new_decoy::ModifiedPeptide\n\taa_sequence => {}\n\tweight => {}\n\tc-terminus-modification => {}\n\tn-terminus-modification => {}\n\tmodifications => {}",
@@ -616,40 +570,98 @@ impl PeptideInterface for ModifiedPeptide {
         );
     }
 
-    fn get_header(&self) -> String {
+    pub fn get_header(&self) -> String {
         return self.header.clone();
     }
 
-    fn get_aa_sequence(&self) -> String {
+    pub fn get_aa_sequence(&self) -> String {
         return self.aa_sequence.iter().collect::<String>();
     }
 
-    fn get_weight(&self) -> i64 {
+    pub fn get_weight(&self) -> i64 {
         return self.weight;
     }
 
-    fn get_length(&self) -> i32 {
+    pub fn get_length(&self) -> i32 {
         return self.aa_sequence.len() as i32;
     }
 
-    fn get_c_terminus_amino_acid(&self) -> char {
+    pub fn get_c_terminus_amino_acid(&self) -> char {
         match self.aa_sequence.iter().last() {
             Some(amino_acids_one_letter_code) => *amino_acids_one_letter_code,
             None => '_'
         }
     }
 
-    fn get_n_terminus_amino_acid(&self) -> char {
+    pub fn get_n_terminus_amino_acid(&self) -> char {
         match self.aa_sequence.iter().next() {
             Some(amino_acids_one_letter_code) => *amino_acids_one_letter_code,
             None => '_'
         }
     }
 
-    fn get_amino_acid_at(&self, idx: usize) -> char {
+    pub fn get_amino_acid_at(&self, idx: usize) -> char {
         match self.aa_sequence.iter().nth(idx) {
             Some(amino_acids_one_letter_code) => *amino_acids_one_letter_code,
             None => '_'
         }
     }
+
+    /// Creates a string of format "(modification_count|modification_accession|modification_description)..." for header. Will be prefixed with "ModSum=" in header.
+    /// Sorted by "modification_accession|modification_description"
+    pub fn get_modification_summary_for_header(&self) -> String {
+    // create a HashMap with key "mod_accession|mod_name" and value Vec<String> which contains the positions of the modification
+        let mut modification_counts: HashMap<String, u8> = HashMap::new();
+        for modification_option in self.modifications.iter() {
+            match modification_option {
+                Some(ref modification) => {
+                    let peff_notation_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                    let counter = match modification_counts.entry(peff_notation_of_accession_and_name) {
+                        Vacant(entry) => entry.insert(0),
+                        Occupied(entry) => entry.into_mut()
+                    };
+                    *counter += 1;
+                },
+                None => ()
+            }
+        }
+        match self.c_terminus_modification {
+            Some(ref modification) => {
+                let peff_notation_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                let counter = match modification_counts.entry(peff_notation_of_accession_and_name) {
+                    Vacant(entry) => entry.insert(0),
+                    Occupied(entry) => entry.into_mut()
+                };
+                *counter += 1;
+            },
+            None => ()
+        }
+        match self.n_terminus_modification {
+            Some(ref modification) => {
+                let peff_notation_of_accession_and_name = format!("{}|{}", modification.get_accession(), modification.get_name());
+                let counter = match modification_counts.entry(peff_notation_of_accession_and_name) {
+                    Vacant(entry) => entry.insert(0),
+                    Occupied(entry) => entry.into_mut()
+                };
+                *counter += 1;
+            },
+            None => ()
+        }
+        let mut mod_res: String = String::new();
+        let mut keys: Vec<String> = modification_counts.keys().map(|key| key.clone()).collect();
+        keys.sort();    // sort keys, so summary modification is alway alphabetically sorted
+        for peff_notation_of_accession_and_name in keys {
+            if let Some(counter) = modification_counts.get(peff_notation_of_accession_and_name.as_str()) {
+                mod_res.push_str(
+                    format!(
+                        "({}|{})",
+                        counter,
+                        peff_notation_of_accession_and_name
+                    ).as_str()
+                );
+            }
+        }
+        return mod_res;
+    }
+
 }
