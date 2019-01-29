@@ -2,6 +2,7 @@ use proteomic::models::mass;
 use proteomic::models::mass::neutral_loss::NeutralLoss;
 
 pub const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
+pub const AMINO_ACIDS_FOR_COUNTING: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
 
 const A: (&'static str, char, &'static str, &'static str, f64, f64, f32) = ("Alanine", 'A', "Ala", "C3H5ON", 71.03711, 71.0788, 9.1);
 /** B is an average between N and D */
@@ -113,14 +114,17 @@ impl AminoAcid {
         }
     }
 
+    // Returns Tryptophan
     pub fn get_haviest() -> AminoAcid {
         return AminoAcid::new(W);
     }
 
+    /// Returns Glycine
     pub fn get_lightest() -> AminoAcid {
         return AminoAcid::new(G);
     }
 
+    /// Calculats the weight of a sequence
     pub fn get_sequence_weight(sequence: &str) -> i64 {
         let mut weight: i64 = NeutralLoss::get("H2O").get_mono_mass();
         for amino_acid_one_letter_code in sequence.chars() {
@@ -129,6 +133,7 @@ impl AminoAcid {
         return weight;
     }
 
+    /// Replaces amino acids which has the same weight with its common one letter code.
     pub fn gerneralize_sequence(sequence: &str) -> String {
         return sequence.replace("I", "J").replace("L", "J");
     }
