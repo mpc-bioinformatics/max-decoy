@@ -1,5 +1,5 @@
 pub struct DigestSummary {
-    created_protein: bool,
+    has_created_protein: bool,
     number_of_created_peptides: usize,
     number_of_created_peptide_protein_associations: usize,
     number_of_processed_peptides: usize,
@@ -11,7 +11,7 @@ pub struct DigestSummary {
 impl DigestSummary {
     pub fn new() -> DigestSummary {
         return DigestSummary {
-            created_protein: false,
+            has_created_protein: false,
             number_of_created_peptides: 0,
             number_of_created_peptide_protein_associations: 0,
             number_of_processed_peptides: 0,
@@ -21,12 +21,12 @@ impl DigestSummary {
         }
     }
 
-    pub fn get_created_protein(&self) -> bool {
-        return self.created_protein;
+    pub fn has_created_protein(&self) -> bool {
+        return self.has_created_protein;
     }
 
-    pub fn set_created_protein(&mut self) {
-        self.created_protein = true;
+    pub fn set_has_created_protein(&mut self) {
+        self.has_created_protein = true;
     }
 
     pub fn get_number_of_created_peptides(&self) -> usize {

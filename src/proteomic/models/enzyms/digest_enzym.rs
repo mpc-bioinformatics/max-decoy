@@ -36,7 +36,7 @@ pub trait DigestEnzym<'e> {
         if !protein.is_persisted() {
             match protein.create(self.get_database_connection()) {
                 Ok(query_ok) => match query_ok {
-                    QueryOk::Created => summary.set_created_protein(),
+                    QueryOk::Created => summary.set_has_created_protein(),
                     QueryOk::AlreadyExists => (),
                     _ => panic!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): In fact no other QueryOk than QueryOk::Created and QueryOk::AlreadyExists used in Protein.create(), this panic should never be reached")
                 },
