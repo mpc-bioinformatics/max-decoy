@@ -7,13 +7,13 @@ use proteomic::models::amino_acids::modification::ModificationPosition;
 fn modification_insert() {
     let conn = DatabaseConnection::get_database_connection();
     Modification::delete_all(&conn);
-    let mut modification_count: i64 = match Modification::get_count(&conn) {
+    let mut modification_count: i64 = match Modification::count(&conn) {
         Ok(count) => count,
-        Err(err) => panic!("proteomic::models::amino_acids::tests::modification::modification_insert at first Modification::get_count(): {}", err)
+        Err(err) => panic!("proteomic::models::amino_acids::tests::modification::modification_insert at first Modification::count(): {}", err)
     };
     assert_eq!(modification_count, 0);
     let mut modification: Modification = Modification::new(
-        "modification_test:insert", 
+        "modification_test:insert",
         "Modification insert test",
         ModificationPosition::Anywhere,
         true,
@@ -25,7 +25,7 @@ fn modification_insert() {
         Err(err) => panic!("proteomic::models::amino_acids::tests::modification::modification_insert at Modification.create(): {}", err)
     }
     assert!(modification.get_primary_key() > 0);
-    modification_count = match Modification::get_count(&conn) {
+    modification_count = match Modification::count(&conn) {
         Ok(count) => count,
         Err(err) => panic!("proteomic::models::amino_acids::tests::modification::modification_insert at first Modification::get_count(): {}", err)
     };
