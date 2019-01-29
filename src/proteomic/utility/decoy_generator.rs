@@ -1,14 +1,14 @@
 use std::collections::{HashSet, HashMap};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use rand::seq::SliceRandom;
 use threadpool::ThreadPool;
 
 use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
+use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::peptides::peptide::Peptide;
-use proteomic::models::decoys::decoy::Decoy;
+use proteomic::models::peptides::decoy::Decoy;
 use proteomic::models::persistable::{Persistable, QueryError};
 use proteomic::models::peptides::modified_peptide::{ModifiedPeptide as NewDecoy, PushAminoAcidOk};
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
@@ -20,11 +20,11 @@ pub struct DecoyGenerator {
     upper_weight_limit: i64,
     lower_weight_limit: i64,
     thread_count: usize,
-    decoy_counter: Arc<AtomicUsize>,
     max_modifications_per_decoy: u8,
     fixed_modification_map: Arc<HashMap<char, Modification>>,
     variable_modification_map: Arc<HashMap<char, Modification>>,
-    one_amino_acid_substitute_map: Arc<HashMap<char, HashMap<char, i64>>>
+    one_amino_acid_substitute_map: Arc<HashMap<char, HashMap<char, i64>>>,
+    decoys: Arc<Mutex<HashSet<Decoy>>>
 }
 
 impl DecoyGenerator {
@@ -34,11 +34,11 @@ impl DecoyGenerator {
             upper_weight_limit: precursor_mass + ((precursor_mass as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64),
             lower_weight_limit: precursor_mass - ((precursor_mass as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
             thread_count: thread_count,
-            decoy_counter: Arc::new(AtomicUsize::new(0)),
             max_modifications_per_decoy: max_modifications_per_decoy,
             fixed_modification_map: Arc::new(fixed_modification_map.clone()),
             variable_modification_map: Arc::new(variable_modification_map.clone()),
-            one_amino_acid_substitute_map: Arc::new(*Self::get_one_amino_acid_substitute_map(fixed_modification_map))
+            one_amino_acid_substitute_map: Arc::new(*Self::get_one_amino_acid_substitute_map(fixed_modification_map)),
+            decoys: Arc::new(Mutex::new(HashSet::new()))
         }
     }
 
@@ -48,6 +48,10 @@ impl DecoyGenerator {
 
     pub fn get_upper_weight_limit(&self) -> i64 {
         return self.upper_weight_limit;
+    }
+
+    pub fn get_decoys(&self) -> &Arc<Mutex<HashSet<Decoy>>> {
+        return &self.decoys;
     }
 
     // generate array which holds natural distribution of amino acids (published by UniProt)
@@ -84,7 +88,7 @@ impl DecoyGenerator {
         return Box::new(amino_acids_and_modification_tupels);
     }
 
-    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) -> usize {
+    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) {
         println!(
             "Need to build {} decoys with weight {} to {}",
             number_of_decoys_to_generate,
@@ -96,10 +100,10 @@ impl DecoyGenerator {
         // loop for starting threads
         for _ in 0..self.thread_count {
             // create copies of thread safe pointer of DecoyGenerator which can be move into thread
-            let decoy_counter_ptr = self.decoy_counter.clone();
             let fixed_modification_map_ptr = self.fixed_modification_map.clone();
             let variable_modification_map_ptr = self.variable_modification_map.clone();
             let one_amino_acid_substitute_map_ptr = self.one_amino_acid_substitute_map.clone();
+            let decoys_ptr = self.decoys.clone();
             // copy primitive attributes of DecoyGenerator which can be moved into thread
             let precursor_mass = self.precursor_mass;
             let upper_weight_limit = self.upper_weight_limit;
@@ -112,9 +116,10 @@ impl DecoyGenerator {
                 let mut rng = rand::thread_rng();
                 // endless loop with label 'decoy_loop
                 'decoy_loop: loop {
-                    if decoy_counter_ptr.load(Ordering::Relaxed) == number_of_decoys_to_generate {
-                        break 'decoy_loop;
-                    }
+                    match decoys_ptr.lock() {
+                        Ok(decoys) => if decoys.len() >= number_of_decoys_to_generate { break 'decoy_loop; },
+                        Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
+                    };
                     // create new empty decoy
                     let mut new_decoy: NewDecoy = NewDecoy::new_decoy(precursor_mass, lower_weight_limit, upper_weight_limit);
                     // let distribution_array = *Self::generate_amino_acid_distribution_array();
@@ -140,24 +145,38 @@ impl DecoyGenerator {
                     }
                     //if new_decoy.create(&conn) {
                     if new_decoy.hits_mass_tolerance() {
-                        decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
+                        let mut decoy = new_decoy.to_decoy();
+                        decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
+                        match decoy.create(&conn) {
+                            Ok(_) => match decoys_ptr.lock() {
+                                Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
+                            },
+                            Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
+                        }
                         continue 'decoy_loop;
                     }
-                    if new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref())
+                    if new_decoy.swap_amino_acids_to_hit_mass_tolerance(one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref())
                     {
-                        // new_decoy.create(&conn);
-                        decoy_counter_ptr.fetch_add(1, Ordering::Relaxed);
+                        let mut decoy = new_decoy.to_decoy();
+                        decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
+                        match decoy.create(&conn) {
+                            Ok(_) => match decoys_ptr.lock() {
+                                Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
+                            },
+                            Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
+                        }
                         continue 'decoy_loop;
                     }
                 }
             });
         }
         thread_pool.join();
-        return self.decoy_counter.load(Ordering::Relaxed);
     }
 
-    pub fn vary_targets(&self, targets: &Vec<Peptide>, number_of_decoys_to_generate: usize) -> usize {
-        let mut decoy_counter = 0;
+    pub fn vary_targets(&self, targets: &Vec<Peptide>, number_of_decoys_to_generate: usize) -> Box<HashSet<Decoy>> {
+        let mut decoys: Box<HashSet<Decoy>> = Box::new(HashSet::new());
         let conn: postgres::Connection = DatabaseConnection::get_database_connection();
         let mut rng = rand::thread_rng();
         'targets_loop: for target in targets.iter() {
@@ -173,12 +192,18 @@ impl DecoyGenerator {
                     }
                 }
                 let mut new_decoy: NewDecoy = NewDecoy::decoy_from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
-                //decoy_counter += new_decoy.swap_amino_acids_to_hit_mass_tolerance(&conn, &self.one_amino_acid_substitute_map, &self.fixed_modification_map, self.max_modifications_per_decoy, &self.variable_modification_map);
-                if new_decoy.create(&conn) { decoy_counter += 1 };
-                if decoy_counter == number_of_decoys_to_generate { break 'shuffle_loop; }
+                if new_decoy.hits_mass_tolerance() {
+                    let mut decoy = new_decoy.to_decoy();
+                    match decoy.create(&conn) {
+                        Ok(_) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                        Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.vary_targets(): Could not create decoy: {}", err)
+                    }
+                }
+                // at this point, we could also swap amino acids and try to apply modifications
+                if decoys.len() >= number_of_decoys_to_generate { break 'shuffle_loop; };
             }
         }
-        return decoy_counter;
+        return decoys;
     }
 
     pub fn vary_new_decoy(&self, new_decoy: &mut NewDecoy) {
