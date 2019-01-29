@@ -3,9 +3,14 @@ use std::collections::HashMap;
 
 use proteomic::models::mass;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
-use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError};
+use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError, handle_postgres_error};
+use proteomic::models::peptides::peptide_interface::PeptideInterface;
+use proteomic::models::protein::Protein;
+use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
+use proteomic::utility::database_connection::DatabaseConnection;
 
 pub const AMINO_ACIDS_FOR_COUNTING: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
+pub const PEPTIDE_HEADER_START: &'static str = ">PEPTIDE_";
 
 /*
  * attributes id, length, number_of_missed_cleavages and weight should be unsigned, but postgresql crate and database does not support it
@@ -37,30 +42,30 @@ impl Peptide {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        return format!(
-            "proteomic::models::peptide::Peptide\n\tid => {}\n\taa_sequence => {}\n\tlength => {}\n\tnumber_of_missed_cleavages => {}\n\tweight => {}",
-            self.id,
-            self.aa_sequence,
-            self.length,
-            self.number_of_missed_cleavages,
-            mass::convert_mass_to_float(self.weight)
-        );
-    }
-
-    pub fn get_weight(&self) -> i64 {
-        return self.weight;
-    }
-
-    pub fn get_aa_sequence(&self) -> &String {
-        return &self.aa_sequence;
-    }
-
     pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> &i16 {
         match self.amino_acids_counts.get(amino_acid_one_letter_code) {
             Some(count) => count,
             None => &0,
         }
+    }
+
+    fn get_comma_seperated_list_of_protein_accessions(&self) -> String {
+        let conn = DatabaseConnection::get_database_connection();
+        let select_query: String = format!(
+            "SELECT {protein_table}.accession FROM (SELECT * FROM {association_table} WHERE {association_table}.peptide_id = $1) associations INNER JOIN protein_table ON associations.protein_id = {protein_table}.id;",
+            association_table = PeptideProteinAssociation::get_table_name(),
+            protein_table = Protein::get_table_name(),
+        );
+        let mut accessions: Vec<String> = Vec::new();
+        match conn.query(select_query.as_str(), &[&self.id]) {
+            Ok(ref rows) => {
+                for row in rows {
+                    accessions.push(row.get::<usize, String>(0));
+                }
+            },
+            Err(err) => panic!("proteomic::models::peptides::peptide::Peptide,get_comma_seperated_list_of_protein_accessions(): {}", handle_postgres_error(&err))
+        }
+        return accessions.join(",");
     }
 }
 
@@ -211,6 +216,57 @@ impl Persistable<Peptide, i64, String> for Peptide {
     }
 
     fn before_delete_hook(&self) -> Result<(), QueryError> {return Ok(());}
+}
+
+impl PeptideInterface for Peptide {
+    fn to_string(&self) -> String {
+        return format!(
+            "proteomic::models::peptides::peptide::Peptide\n\tid => {}\n\taa_sequence => {}\n\tlength => {}\n\tnumber_of_missed_cleavages => {}\n\tweight => {}\n\taa_counts => {:?}",
+            self.id,
+            self.aa_sequence,
+            self.length,
+            self.number_of_missed_cleavages,
+            mass::convert_mass_to_float(self.weight),
+            self.amino_acids_counts
+        );
+    }
+
+    fn get_header(&self) -> String {
+        return format!("{}{}", PEPTIDE_HEADER_START, self.get_comma_seperated_list_of_protein_accessions());
+    }
+
+    fn get_aa_sequence(&self) -> String {
+        return self.aa_sequence.clone();
+    }
+
+    fn get_weight(&self) -> i64 {
+        return self.weight;
+    }
+
+    fn get_length(&self) -> i32 {
+        return self.aa_sequence.len() as i32;
+    }
+
+    fn get_c_terminus_amino_acid(&self) -> char {
+        match self.aa_sequence.chars().last() {
+            Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
+            None => '_'
+        }
+    }
+
+    fn get_n_terminus_amino_acid(&self) -> char {
+        match self.aa_sequence.chars().next() {
+            Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
+            None => '_'
+        }
+    }
+
+    fn get_amino_acid_at(&self, idx: usize) -> char {
+        match self.aa_sequence.chars().nth(idx) {
+            Some(amino_acids_one_letter_code) => amino_acids_one_letter_code,
+            None => '_'
+        }
+    }
 }
 
 // PartialEq-implementation to use this type in a HashSet
