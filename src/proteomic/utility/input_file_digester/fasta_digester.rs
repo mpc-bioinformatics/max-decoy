@@ -52,6 +52,9 @@ impl FileDigester for FastaDigester {
         let mut header: String = String::new();
         let mut aa_sequence = String::new();
 
+        // start
+        self.performance_logger.start_logging();
+
         let start_time: f64 = time::precise_time_s();
         for line in fasta_file.lines() {
             // trim
