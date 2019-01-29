@@ -7,10 +7,8 @@ use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError, h
 use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
-use proteomic::utility::database_connection::DatabaseConnection;
 
-pub const AMINO_ACIDS_FOR_COUNTING: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
-pub const PEPTIDE_HEADER_START: &'static str = ">PEPTIDE_";
+pub const PEPTIDE_HEADER_START: &'static str = ">PEPTIDE";
 
 /*
  * attributes id, length, number_of_missed_cleavages and weight should be unsigned, but postgresql crate and database does not support it
@@ -23,41 +21,31 @@ pub struct Peptide {
     number_of_missed_cleavages: i16,        // SMALLINT
     weight: i64,                            // BIGINT
     amino_acids_counts: HashMap<char, i16>  // columns <one_letter_code>_count, type SMALLINT
-
 }
 
 impl Peptide {
-    pub fn new(aa_sequence: &str, number_of_missed_cleavages: i16) -> Peptide {
+    pub fn new(aa_sequence: &str, number_of_missed_cleavages: i16) -> Self {
         let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(aa_sequence);
-        return Peptide{
+        return Self {
             id: 0,
             length: generalized_aa_sequence.len() as i32,
-            weight: AminoAcid::get_sequence_weight(&generalized_aa_sequence),
+            weight: AminoAcid::get_sequence_weight(generalized_aa_sequence.as_str()),
+            amino_acids_counts: *Self::count_amino_acids(generalized_aa_sequence.as_str()),
             aa_sequence: generalized_aa_sequence,
             number_of_missed_cleavages: number_of_missed_cleavages,
-            amino_acids_counts: *Self::count_amino_acids(generalized_aa_sequence.as_str())
         }
     }
 
-    fn count_amino_acids(aa_sequence: &str) -> Box<HashMap<char, i16>> {
-        let mut amino_acids_counts: Box<HashMap<char, i16>> = Box::new(HashMap::new());
-        for one_letter_code in AMINO_ACIDS_FOR_COUNTING {
-            amino_acids_counts.insert(*one_letter_code, aa_sequence.matches(*one_letter_code).count() as i16);
-        }
-        return amino_acids_counts;
-    }
-
-    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> i16 {
+    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> &i16 {
         match self.amino_acids_counts.get(amino_acid_one_letter_code) {
-            Some(count) => *count,
-            None => 0,
+            Some(count) => count,
+            None => &0,
         }
     }
 
-    fn get_comma_seperated_list_of_protein_accessions(&self) -> String {
-        let conn = DatabaseConnection::get_database_connection();
+    fn get_comma_seperated_list_of_protein_accessions(&self, conn: &postgres::Connection) -> String {
         let select_query: String = format!(
-            "SELECT {protein_table}.accession FROM (SELECT * FROM {association_table} WHERE {association_table}.peptide_id = $1) associations INNER JOIN protein_table ON associations.protein_id = {protein_table}.id;",
+            "SELECT {protein_table}.accession FROM (SELECT * FROM {association_table} WHERE {association_table}.peptide_id = $1) INNER JOIN protein_table ON {association_table}.protein_id = {protein_table}.id;",
             association_table = PeptideProteinAssociation::get_table_name(),
             protein_table = Protein::get_table_name(),
         );
@@ -68,9 +56,21 @@ impl Peptide {
                     accessions.push(row.get::<usize, String>(0));
                 }
             },
-            Err(err) => panic!("proteomic::models::peptides::peptide::Peptide,get_comma_seperated_list_of_protein_accessions(): {}", handle_postgres_error(&err))
+            Err(err) => panic!("proteomic::models::peptides::peptide::Peptide.get_comma_seperated_list_of_protein_accessions(): {}", handle_postgres_error(&err))
         }
         return accessions.join(",");
+    }
+
+    pub fn get_header(&self, conn: &postgres::Connection) -> String {
+        return format!("{} ProteinAccessions={}", PEPTIDE_HEADER_START, self.get_comma_seperated_list_of_protein_accessions(conn));
+    }
+
+    pub fn get_header_with_modification_summary(&self, conn: &postgres::Connection, modification_summary: &str) -> String {
+        let mut header = self.get_header(&conn);
+        if modification_summary.len() > 0 {
+            header.push_str(format!(" ModRes={}", modification_summary).as_str());
+        }
+        return header;
     }
 }
 
@@ -143,26 +143,26 @@ impl Persistable<Peptide, i64, String> for Peptide {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
-            &self.get_count_for_amino_acid(&'r'),
-            &self.get_count_for_amino_acid(&'n'),
-            &self.get_count_for_amino_acid(&'d'),
-            &self.get_count_for_amino_acid(&'c'),
-            &self.get_count_for_amino_acid(&'e'),
-            &self.get_count_for_amino_acid(&'q'),
-            &self.get_count_for_amino_acid(&'g'),
-            &self.get_count_for_amino_acid(&'h'),
-            &self.get_count_for_amino_acid(&'j'),
-            &self.get_count_for_amino_acid(&'k'),
-            &self.get_count_for_amino_acid(&'m'),
-            &self.get_count_for_amino_acid(&'f'),
-            &self.get_count_for_amino_acid(&'p'),
-            &self.get_count_for_amino_acid(&'o'),
-            &self.get_count_for_amino_acid(&'s'),
-            &self.get_count_for_amino_acid(&'t'),
-            &self.get_count_for_amino_acid(&'u'),
-            &self.get_count_for_amino_acid(&'v'),
-            &self.get_count_for_amino_acid(&'w'),
-            &self.get_count_for_amino_acid(&'y')
+            self.get_count_for_amino_acid(&'r'),
+            self.get_count_for_amino_acid(&'n'),
+            self.get_count_for_amino_acid(&'d'),
+            self.get_count_for_amino_acid(&'c'),
+            self.get_count_for_amino_acid(&'e'),
+            self.get_count_for_amino_acid(&'q'),
+            self.get_count_for_amino_acid(&'g'),
+            self.get_count_for_amino_acid(&'h'),
+            self.get_count_for_amino_acid(&'j'),
+            self.get_count_for_amino_acid(&'k'),
+            self.get_count_for_amino_acid(&'m'),
+            self.get_count_for_amino_acid(&'f'),
+            self.get_count_for_amino_acid(&'p'),
+            self.get_count_for_amino_acid(&'o'),
+            self.get_count_for_amino_acid(&'s'),
+            self.get_count_for_amino_acid(&'t'),
+            self.get_count_for_amino_acid(&'u'),
+            self.get_count_for_amino_acid(&'v'),
+            self.get_count_for_amino_acid(&'w'),
+            self.get_count_for_amino_acid(&'y')
         ]);
     }
 
@@ -177,26 +177,26 @@ impl Persistable<Peptide, i64, String> for Peptide {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
-            &self.get_count_for_amino_acid(&'r'),
-            &self.get_count_for_amino_acid(&'n'),
-            &self.get_count_for_amino_acid(&'d'),
-            &self.get_count_for_amino_acid(&'c'),
-            &self.get_count_for_amino_acid(&'e'),
-            &self.get_count_for_amino_acid(&'q'),
-            &self.get_count_for_amino_acid(&'g'),
-            &self.get_count_for_amino_acid(&'h'),
-            &self.get_count_for_amino_acid(&'j'),
-            &self.get_count_for_amino_acid(&'k'),
-            &self.get_count_for_amino_acid(&'m'),
-            &self.get_count_for_amino_acid(&'f'),
-            &self.get_count_for_amino_acid(&'p'),
-            &self.get_count_for_amino_acid(&'o'),
-            &self.get_count_for_amino_acid(&'s'),
-            &self.get_count_for_amino_acid(&'t'),
-            &self.get_count_for_amino_acid(&'u'),
-            &self.get_count_for_amino_acid(&'v'),
-            &self.get_count_for_amino_acid(&'w'),
-            &self.get_count_for_amino_acid(&'y')
+            self.get_count_for_amino_acid(&'r'),
+            self.get_count_for_amino_acid(&'n'),
+            self.get_count_for_amino_acid(&'d'),
+            self.get_count_for_amino_acid(&'c'),
+            self.get_count_for_amino_acid(&'e'),
+            self.get_count_for_amino_acid(&'q'),
+            self.get_count_for_amino_acid(&'g'),
+            self.get_count_for_amino_acid(&'h'),
+            self.get_count_for_amino_acid(&'j'),
+            self.get_count_for_amino_acid(&'k'),
+            self.get_count_for_amino_acid(&'m'),
+            self.get_count_for_amino_acid(&'f'),
+            self.get_count_for_amino_acid(&'p'),
+            self.get_count_for_amino_acid(&'o'),
+            self.get_count_for_amino_acid(&'s'),
+            self.get_count_for_amino_acid(&'t'),
+            self.get_count_for_amino_acid(&'u'),
+            self.get_count_for_amino_acid(&'v'),
+            self.get_count_for_amino_acid(&'w'),
+            self.get_count_for_amino_acid(&'y')
         ]);
     }
 
@@ -236,12 +236,8 @@ impl PeptideInterface for Peptide {
         );
     }
 
-    fn get_header(&self) -> String {
-        return format!("{}{}", PEPTIDE_HEADER_START, self.get_comma_seperated_list_of_protein_accessions());
-    }
-
-    fn get_aa_sequence(&self) -> String {
-        return self.aa_sequence.clone();
+    fn get_aa_sequence(&self) -> &str {
+        return self.aa_sequence.as_str();
     }
 
     fn get_weight(&self) -> i64 {
@@ -277,7 +273,7 @@ impl PeptideInterface for Peptide {
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for Peptide {
     fn eq(&self, other: &Peptide) -> bool {
-       return self.aa_sequence == *other.get_aa_sequence();
+       return self.aa_sequence.eq(&other.get_aa_sequence());
     }
 }
 
