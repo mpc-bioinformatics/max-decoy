@@ -16,7 +16,8 @@ pub struct Decoy {
     length: i32,                            // INTEGER
     number_of_missed_cleavages: i16,        // SMALLINT
     weight: i64,                            // BIGINT
-    amino_acids_counts: HashMap<char, i16>  // columns <one_letter_code>_count, type SMALLINT
+    amino_acids_counts: HashMap<char, i16>,  // columns <one_letter_code>_count, type SMALLINT
+    modification_summary: String
 }
 
 impl Decoy {
@@ -25,18 +26,31 @@ impl Decoy {
         return Self {
             id: 0,
             length: generalized_aa_sequence.len() as i32,
-            weight: AminoAcid::get_sequence_weight(&generalized_aa_sequence),
+            weight: AminoAcid::get_sequence_weight(generalized_aa_sequence.as_str()),
+            amino_acids_counts: *Self::count_amino_acids(generalized_aa_sequence.as_str()),
             aa_sequence: generalized_aa_sequence,
             number_of_missed_cleavages: number_of_missed_cleavages,
-            amino_acids_counts: *Self::count_amino_acids(generalized_aa_sequence.as_str())
+            modification_summary: String::new()
         }
     }
 
-    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> i16 {
+    pub fn get_count_for_amino_acid(&self, amino_acid_one_letter_code: &char) -> &i16 {
         match self.amino_acids_counts.get(amino_acid_one_letter_code) {
-            Some(count) => *count,
-            None => 0,
+            Some(count) => count,
+            None => &0,
         }
+    }
+
+    pub fn get_header(&self) -> String {
+        let mut header = format!("{}{}", DECOY_HEADER_START, self.aa_sequence.as_str());
+        if self.modification_summary.len() > 0 {
+            header.push_str(format!(" ModRes={}", self.modification_summary).as_str());
+        }
+        return header;
+    }
+
+    pub fn set_modification_summary(&mut self, modification_summary: &str) {
+        self.modification_summary = modification_summary.to_owned();
     }
 }
 
@@ -51,10 +65,6 @@ impl PeptideInterface for Decoy {
             mass::convert_mass_to_float(self.weight),
             self.amino_acids_counts
         );
-    }
-
-    fn get_header(&self) -> String {
-        return format!("{}{}", DECOY_HEADER_START, self.aa_sequence.as_str());
     }
 
     fn get_aa_sequence(&self) -> &str {
@@ -121,7 +131,8 @@ impl Persistable<Decoy, i64, String> for Decoy {
                     ('v', row.get(23)),
                     ('w', row.get(24)),
                     ('y', row.get(25))
-                ].iter().cloned().collect()
+                ].iter().cloned().collect(),
+                modification_summary: String::new()
             }
         )
     }
@@ -160,26 +171,26 @@ impl Persistable<Decoy, i64, String> for Decoy {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
-            &self.get_count_for_amino_acid(&'r'),
-            &self.get_count_for_amino_acid(&'n'),
-            &self.get_count_for_amino_acid(&'d'),
-            &self.get_count_for_amino_acid(&'c'),
-            &self.get_count_for_amino_acid(&'e'),
-            &self.get_count_for_amino_acid(&'q'),
-            &self.get_count_for_amino_acid(&'g'),
-            &self.get_count_for_amino_acid(&'h'),
-            &self.get_count_for_amino_acid(&'j'),
-            &self.get_count_for_amino_acid(&'k'),
-            &self.get_count_for_amino_acid(&'m'),
-            &self.get_count_for_amino_acid(&'f'),
-            &self.get_count_for_amino_acid(&'p'),
-            &self.get_count_for_amino_acid(&'o'),
-            &self.get_count_for_amino_acid(&'s'),
-            &self.get_count_for_amino_acid(&'t'),
-            &self.get_count_for_amino_acid(&'u'),
-            &self.get_count_for_amino_acid(&'v'),
-            &self.get_count_for_amino_acid(&'w'),
-            &self.get_count_for_amino_acid(&'y')
+            self.get_count_for_amino_acid(&'r'),
+            self.get_count_for_amino_acid(&'n'),
+            self.get_count_for_amino_acid(&'d'),
+            self.get_count_for_amino_acid(&'c'),
+            self.get_count_for_amino_acid(&'e'),
+            self.get_count_for_amino_acid(&'q'),
+            self.get_count_for_amino_acid(&'g'),
+            self.get_count_for_amino_acid(&'h'),
+            self.get_count_for_amino_acid(&'j'),
+            self.get_count_for_amino_acid(&'k'),
+            self.get_count_for_amino_acid(&'m'),
+            self.get_count_for_amino_acid(&'f'),
+            self.get_count_for_amino_acid(&'p'),
+            self.get_count_for_amino_acid(&'o'),
+            self.get_count_for_amino_acid(&'s'),
+            self.get_count_for_amino_acid(&'t'),
+            self.get_count_for_amino_acid(&'u'),
+            self.get_count_for_amino_acid(&'v'),
+            self.get_count_for_amino_acid(&'w'),
+            self.get_count_for_amino_acid(&'y')
         ]);
     }
 
@@ -194,26 +205,26 @@ impl Persistable<Decoy, i64, String> for Decoy {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
-            &self.get_count_for_amino_acid(&'r'),
-            &self.get_count_for_amino_acid(&'n'),
-            &self.get_count_for_amino_acid(&'d'),
-            &self.get_count_for_amino_acid(&'c'),
-            &self.get_count_for_amino_acid(&'e'),
-            &self.get_count_for_amino_acid(&'q'),
-            &self.get_count_for_amino_acid(&'g'),
-            &self.get_count_for_amino_acid(&'h'),
-            &self.get_count_for_amino_acid(&'j'),
-            &self.get_count_for_amino_acid(&'k'),
-            &self.get_count_for_amino_acid(&'m'),
-            &self.get_count_for_amino_acid(&'f'),
-            &self.get_count_for_amino_acid(&'p'),
-            &self.get_count_for_amino_acid(&'o'),
-            &self.get_count_for_amino_acid(&'s'),
-            &self.get_count_for_amino_acid(&'t'),
-            &self.get_count_for_amino_acid(&'u'),
-            &self.get_count_for_amino_acid(&'v'),
-            &self.get_count_for_amino_acid(&'w'),
-            &self.get_count_for_amino_acid(&'y')
+            self.get_count_for_amino_acid(&'r'),
+            self.get_count_for_amino_acid(&'n'),
+            self.get_count_for_amino_acid(&'d'),
+            self.get_count_for_amino_acid(&'c'),
+            self.get_count_for_amino_acid(&'e'),
+            self.get_count_for_amino_acid(&'q'),
+            self.get_count_for_amino_acid(&'g'),
+            self.get_count_for_amino_acid(&'h'),
+            self.get_count_for_amino_acid(&'j'),
+            self.get_count_for_amino_acid(&'k'),
+            self.get_count_for_amino_acid(&'m'),
+            self.get_count_for_amino_acid(&'f'),
+            self.get_count_for_amino_acid(&'p'),
+            self.get_count_for_amino_acid(&'o'),
+            self.get_count_for_amino_acid(&'s'),
+            self.get_count_for_amino_acid(&'t'),
+            self.get_count_for_amino_acid(&'u'),
+            self.get_count_for_amino_acid(&'v'),
+            self.get_count_for_amino_acid(&'w'),
+            self.get_count_for_amino_acid(&'y')
         ]);
     }
 
@@ -243,7 +254,7 @@ impl Persistable<Decoy, i64, String> for Decoy {
 // PartialEq-implementation to use this type in a HashSet
 impl PartialEq for Decoy {
     fn eq(&self, other: &Decoy) -> bool {
-       return self.aa_sequence.eq(&other.get_aa_sequence());
+        return self.aa_sequence.eq(&other.get_aa_sequence());
     }
 }
 
