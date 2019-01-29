@@ -150,26 +150,6 @@ CREATE TABLE peptides_1 PARTITION OF peptides FOR VALUES FROM (2014015051) TO (1
 
 -- peptides indices
 CREATE INDEX peptide_length_idx ON peptides (length);
-CREATE INDEX peptide_r_count_idx ON peptides (r_count);
-CREATE INDEX peptide_n_count_idx ON peptides (n_count);
-CREATE INDEX peptide_d_count_idx ON peptides (d_count);
-CREATE INDEX peptide_c_count_idx ON peptides (c_count);
-CREATE INDEX peptide_e_count_idx ON peptides (e_count);
-CREATE INDEX peptide_q_count_idx ON peptides (q_count);
-CREATE INDEX peptide_g_count_idx ON peptides (g_count);
-CREATE INDEX peptide_h_count_idx ON peptides (h_count);
-CREATE INDEX peptide_j_count_idx ON peptides (j_count);
-CREATE INDEX peptide_k_count_idx ON peptides (k_count);
-CREATE INDEX peptide_m_count_idx ON peptides (m_count);
-CREATE INDEX peptide_f_count_idx ON peptides (f_count);
-CREATE INDEX peptide_p_count_idx ON peptides (p_count);
-CREATE INDEX peptide_o_count_idx ON peptides (o_count);
-CREATE INDEX peptide_s_count_idx ON peptides (s_count);
-CREATE INDEX peptide_t_count_idx ON peptides (t_count);
-CREATE INDEX peptide_u_count_idx ON peptides (u_count);
-CREATE INDEX peptide_v_count_idx ON peptides (v_count);
-CREATE INDEX peptide_w_count_idx ON peptides (w_count);
-CREATE INDEX peptide_y_count_idx ON peptides (y_count);
 
 -- peptide protein associations
 CREATE TABLE peptides_proteins (
@@ -190,24 +170,33 @@ CREATE TABLE IF NOT EXISTS amino_acid_modifications (
     UNIQUE (accession)
 );
 
-
-CREATE TABLE IF NOT EXISTS base_decoys (
-    id BIGSERIAL PRIMARY KEY,
-    header TEXT NOT NULL,
+-- decoys
+CREATE TABLE decoys (
+    id BIGSERIAL NOT NULL,
     aa_sequence VARCHAR(60) NOT NULL,
     length INTEGER NOT NULL,
+    number_of_missed_cleavages SMALLINT NOT NULL,
     weight BIGINT NOT NULL,
-    UNIQUE (aa_sequence, weight)
-);
-
-
-CREATE TABLE IF NOT EXISTS modified_decoys (
-    id BIGSERIAL PRIMARY KEY,
-    base_decoy_id BIGINT REFERENCES base_decoys(id) NOT NULL,
-    modification_ids BIGINT ARRAY NOT NULL,
-    weight BIGINT NOT null,
-    modification_summary TEXT NOT NULL,
-    UNIQUE (base_decoy_id, modification_summary)
-);
-
-CREATE INDEX modified_decoy_modification_ids_idx ON modified_decoys (modification_ids);
+    r_count SMALLINT DEFAULT 0 NOT NULL,
+    n_count SMALLINT DEFAULT 0 NOT NULL,
+    d_count SMALLINT DEFAULT 0 NOT NULL,
+    c_count SMALLINT DEFAULT 0 NOT NULL,
+    e_count SMALLINT DEFAULT 0 NOT NULL,
+    q_count SMALLINT DEFAULT 0 NOT NULL,
+    g_count SMALLINT DEFAULT 0 NOT NULL,
+    h_count SMALLINT DEFAULT 0 NOT NULL,
+    j_count SMALLINT DEFAULT 0 NOT NULL,
+    k_count SMALLINT DEFAULT 0 NOT NULL,
+    m_count SMALLINT DEFAULT 0 NOT NULL,
+    f_count SMALLINT DEFAULT 0 NOT NULL,
+    p_count SMALLINT DEFAULT 0 NOT NULL,
+    o_count SMALLINT DEFAULT 0 NOT NULL,
+    s_count SMALLINT DEFAULT 0 NOT NULL,
+    t_count SMALLINT DEFAULT 0 NOT NULL,
+    u_count SMALLINT DEFAULT 0 NOT NULL,
+    v_count SMALLINT DEFAULT 0 NOT NULL,
+    w_count SMALLINT DEFAULT 0 NOT NULL,
+    y_count SMALLINT DEFAULT 0 NOT NULL,
+    UNIQUE (aa_sequence, weight),
+    PRIMARY KEY (id, weight)
+) PARTITION BY RANGE (weight);
