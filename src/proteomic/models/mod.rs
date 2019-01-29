@@ -1,5 +1,4 @@
 pub mod amino_acids;
-pub mod decoys;
 pub mod enzyms;
 pub mod protein;
 pub mod peptides;
