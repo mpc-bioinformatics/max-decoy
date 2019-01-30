@@ -2,8 +2,9 @@ use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
 
 use proteomic::models::mass;
-use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError};
+use proteomic::models::persistable::{Persistable, QueryOk, QueryError, FromSqlRowError};
 use proteomic::models::peptides::peptide_interface::PeptideInterface;
+use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 
 pub const DECOY_HEADER_START: &'static str = ">DECOY_";
@@ -51,6 +52,19 @@ impl Decoy {
 
     pub fn set_modification_summary(&mut self, modification_summary: &str) {
         self.modification_summary = modification_summary.to_owned();
+    }
+
+    pub fn is_peptide(&self, conn: &postgres::Connection) -> bool {
+        match Peptide::exists_where(conn, "aa_sequence = $1", &[&self.aa_sequence]) {
+            Ok(query_ok) => match query_ok {
+                QueryOk::Exists => return true,
+                _ => panic!("proteomic::models::peptides::decoy::Decoy.is_peptide(): Got QueryOk which should not be returned")
+            },
+            Err(query_err) => match query_err {
+                QueryError::NoMatch => return false,
+                _ => panic!("proteomic::models::peptides::decoy::Decoy.is_peptide(): Err: {}", query_err)
+            }
+        }
     }
 }
 

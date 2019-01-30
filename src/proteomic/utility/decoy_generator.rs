@@ -141,18 +141,18 @@ impl DecoyGenerator {
                             },
                             Err(push_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Error at new_decoy.push_amino_acid_and_fix_modification: {}", push_err)
                         }
-                        // println!("{} => {}", new_decoy.get_aa_sequence(), mass::convert_mass_to_float(new_decoy.get_weight()));
                     }
-                    //if new_decoy.create(&conn) {
                     if new_decoy.hits_mass_tolerance() {
                         let mut decoy = new_decoy.to_decoy();
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
-                        match decoy.create(&conn) {
-                            Ok(_) => match decoys_ptr.lock() {
-                                Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
-                            },
-                            Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
+                        if !decoy.is_peptide(&conn) {
+                            match decoy.create(&conn) {
+                                Ok(_) => match decoys_ptr.lock() {
+                                    Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
+                                },
+                                Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
+                            }
                         }
                         continue 'decoy_loop;
                     }
@@ -160,12 +160,14 @@ impl DecoyGenerator {
                     {
                         let mut decoy = new_decoy.to_decoy();
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
-                        match decoy.create(&conn) {
-                            Ok(_) => match decoys_ptr.lock() {
-                                Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
-                            },
-                            Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
+                        if !decoy.is_peptide(&conn) {
+                            match decoy.create(&conn) {
+                                Ok(_) => match decoys_ptr.lock() {
+                                    Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
+                                },
+                                Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
+                            }
                         }
                         continue 'decoy_loop;
                     }
@@ -194,9 +196,11 @@ impl DecoyGenerator {
                 let mut new_decoy: NewDecoy = NewDecoy::decoy_from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
                 if new_decoy.hits_mass_tolerance() {
                     let mut decoy = new_decoy.to_decoy();
-                    match decoy.create(&conn) {
-                        Ok(_) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                        Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.vary_targets(): Could not create decoy: {}", err)
+                    if !decoy.is_peptide(&conn) {
+                        match decoy.create(&conn) {
+                            Ok(_) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                            Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.vary_targets(): Could not create decoy: {}", err)
+                        }
                     }
                 }
                 // at this point, we could also swap amino acids and try to apply modifications
