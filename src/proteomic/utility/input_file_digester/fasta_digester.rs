@@ -52,6 +52,8 @@ impl FileDigester for FastaDigester {
         let mut header: String = String::new();
         let mut aa_sequence = String::new();
 
+        let mut transaction_size = 100;
+
         // start
 
         match self.performance_logger.lock() {
@@ -85,7 +87,7 @@ impl FileDigester for FastaDigester {
 
                             //let mut enzym = Trypsin::new(db_conn_ref, max_number_of_missed_cleavages, min_peptide_length, max_peptide_length);
                             let mut enzym = enzyms::get(enzym_name_clone.as_str(), db_conn_ref, max_number_of_missed_cleavages, min_peptide_length, max_peptide_length);
-                            let summary = enzym.digest(&mut protein);
+                            let summary = enzym.digest(&mut protein, transaction_size);
 
                             if summary.get_unsolveable_errors_occured() {
                                 unsuccessful_protein_logger_ptr.push_back(protein.as_fasta_entry());
@@ -115,7 +117,7 @@ impl FileDigester for FastaDigester {
         let db_conn_ref = &db_conn;
         {
             let mut enzym = enzyms::get(enzym_name, db_conn_ref, self.max_number_of_missed_cleavages, self.min_peptide_length, self.max_peptide_length);
-            let summary = enzym.digest(&mut protein);
+            let summary = enzym.digest(&mut protein, transaction_size);
             if summary.get_unsolveable_errors_occured() {
                 self.unsuccessful_protein_logger.push_back(protein.as_fasta_entry());
                 self.message_logger.push_back(summary.get_log());

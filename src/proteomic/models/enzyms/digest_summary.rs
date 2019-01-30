@@ -1,3 +1,5 @@
+use proteomic::models::enzyms::transaction_summary::TransactionSummary;
+
 pub struct DigestSummary {
     has_created_protein: bool,
     number_of_created_peptides: usize,
@@ -45,11 +47,14 @@ impl DigestSummary {
         return self.number_of_processed_peptide_protein_associations;
     }
 
-    pub fn increase_counter(&mut self, peptide_created: bool, association_created: bool) {
-        if peptide_created { self.number_of_created_peptides += 1; }
-        self.number_of_processed_peptides += 1;
+    pub fn increase_peptide_protein_association_counter(&mut self, association_created: bool) {
         if association_created { self.number_of_created_peptide_protein_associations += 1; }
         self.number_of_processed_peptide_protein_associations += 1;
+    }
+
+    pub fn increase_peptides_counter(&mut self, peptide_created: bool) {
+        if peptide_created { self.number_of_created_peptides += 1; }
+        self.number_of_processed_peptides += 1;
     }
 
     pub fn get_log(&self) -> String {
@@ -70,5 +75,12 @@ impl DigestSummary {
 
     pub fn set_unsolveable_errors_occured(&mut self) {
         self.unsolveable_errors_occured = true;
+    }
+
+    pub fn merge_with_transaction_summary(&mut self, transaction_summary: &TransactionSummary) {
+        self.number_of_created_peptides += transaction_summary.get_number_of_created_peptides();
+        self.number_of_created_peptide_protein_associations += transaction_summary.get_number_of_created_peptide_protein_associations();
+        self.number_of_processed_peptides += transaction_summary.get_number_of_processed_peptides();
+        self.number_of_processed_peptide_protein_associations += transaction_summary.get_number_of_processed_peptide_protein_associations();
     }
 }
