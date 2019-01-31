@@ -188,11 +188,6 @@ fn run_spectrum_splitup(mz_ml_splitup_cli_args: &clap::ArgMatches) {
     println!("found and write {} MS2-spectra in {} s", spectra.len(), stop_time - start_time);
 }
 
-/// Splits up the given mzML-file into mzML-files containing a single MS2-spectrum and writes them into the given destination folder
-fn run_identification(cli_args: &clap::ArgMatches) {
-
-}
-
 fn main() {
     let matches = App::new("Peptide Magic")
     .version("1.0")
