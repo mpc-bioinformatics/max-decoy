@@ -48,24 +48,20 @@ impl DigestSummary {
     }
 
     /// Increases the counters for peptide-protein-associations.
-    /// Function is never used yet. If you use this. Please remove #[allow(dead_code)]
     ///
     /// # Arguments
     ///
     /// * `association_created` - States if the created counter will also increased.
-    #[allow(dead_code)]
     pub fn increase_peptide_protein_association_counter(&mut self, association_created: bool) {
         if association_created { self.number_of_created_peptide_protein_associations += 1; }
         self.number_of_processed_peptide_protein_associations += 1;
     }
 
     /// Increases the counters for peptides.
-    /// Function is never used yet. If you use this. Please remove #[allow(dead_code)]
     ///
     /// # Arguments
     ///
     /// * `peptide_created` - States if the created counter will also increased.
-    #[allow(dead_code)]
     pub fn increase_peptides_counter(&mut self, peptide_created: bool) {
         if peptide_created { self.number_of_created_peptides += 1; }
         self.number_of_processed_peptides += 1;
@@ -80,7 +76,7 @@ impl DigestSummary {
     }
 
     /// Returns number of log messages
-    /// Function is never used yet. If you use this. Please remove #[allow(dead_code)]
+    /// Function is never used yet. If you use it, please remove #[allow(dead_code)]
     #[allow(dead_code)]
     pub fn get_number_of_log_messages(&self) ->  usize {
         return self.log.len();

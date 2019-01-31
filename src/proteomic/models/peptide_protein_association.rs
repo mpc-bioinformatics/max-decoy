@@ -1,4 +1,4 @@
-use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, QueryOk, FromSqlRowError};
+use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError};
 use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::protein::Protein;
 

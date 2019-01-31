@@ -64,9 +64,11 @@ impl AminoAcid {
     pub fn get_one_letter_code (&self) -> char {
         return self.one_letter_code;
     }
+
     pub fn get_three_letter_code (&self) -> &'static str {
         return self.three_letter_code;
     }
+
     pub fn get_chemical_formular (&self) -> &'static str {
         return self.chemical_formula;
     }

@@ -12,7 +12,6 @@ use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::mass;
 use proteomic::models::mass::neutral_loss::NeutralLoss;
 use proteomic::utility::combinations::n_choose_k::NChooseK;
-use proteomic::models::persistable::{Persistable, QueryOk, QueryError};
 use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::peptides::peptide::{Peptide, PEPTIDE_HEADER_START};
 use proteomic::models::peptides::decoy::{Decoy, DECOY_HEADER_START};
@@ -71,12 +70,6 @@ impl fmt::Display for ModifiedPeptideError {
 }
 
 
-enum PeptideType {
-    Peptide,
-    Decoy
-}
-
-
 pub struct ModifiedPeptide {
     header: String,
     aa_sequence: Vec<char>,
@@ -115,6 +108,7 @@ impl ModifiedPeptide {
     /// Creates a new ModifiedPepitide from an existing sequence,
     /// with header DECOY_HEADER_START
     /// and respect to fix modifications
+    ///
     pub fn decoy_from_string(aa_sequence: &str, precursor_mass: i64, lower_weight_limit: i64, upper_weight_limit: i64, fix_modifications: &HashMap<char, Modification>) -> Self {
         return Self::from_string(DECOY_HEADER_START, aa_sequence, precursor_mass, lower_weight_limit, upper_weight_limit, fix_modifications);
     }

@@ -196,6 +196,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             };
             if possible_decoys.len() == 0 { break; }
             for decoy in possible_decoys.iter_mut() {
+                #[allow(unused_assignments)] // `modified_decoys_fits_precursor_tolerance` is actually read in if-instruction below
                 let mut modified_decoys_fits_precursor_tolerance = false;
                 let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  generator.get_lower_weight_limit(),  generator.get_upper_weight_limit(), &fixed_modifications_map);
                 modified_decoys_fits_precursor_tolerance = modified_decoy.hits_mass_tolerance();
