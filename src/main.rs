@@ -8,6 +8,7 @@ extern crate rand;
 extern crate threadpool;
 extern crate onig;
 extern crate time;
+extern crate csv;
 
 use std::collections::HashMap;
 

@@ -1,22 +1,9 @@
-extern crate postgres;
-extern crate csv;
-
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use proteomic::models::mass;
-use proteomic::models::persistable::{handle_postgres_error, Persistable, QueryError, FromSqlRowError};
+use proteomic::models::persistable::{Persistable, QueryError, FromSqlRowError};
 use proteomic::utility::database_connection::DatabaseConnection;
-
-// it is very important that this dummy is in inserted into the databse first. 
-// because postgresql does not consider null-values during testing of unique constraints the follwoing two sql commands to create a modified decoy will both succeded_
-//     1. insert into modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) values (204, null, null, '{null, null, null, null}', 1000000);
-//     2. insert into modified_decoys (base_decoy_id, c_terminus_modification_id, n_terminus_modification_id, modification_ids, weight) values (204, null, null, '{null, null, null, null}', 1000000);
-// in fact we ended with two redundant ModifiedDecoys, which is bad.
-// the plan is to use the id of the dummy modification instead of allowing null during insert.
-// vice versa we can replace the dummy modification with None during parsing sql results to object.
-// id = -1 will not interfere with any other modification, because BIGSERIAL begins per default with 1.
-const DUMMY_MODIFICATION_VALUES: (i64, &str, &str, ModificationPosition, bool, char, i64) = (-1, "max-decoy-internal:dummy", "DO NOT DELETE THIS MODIFICATION!", ModificationPosition::Anywhere, true, '!', 0);
 
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -27,6 +14,7 @@ pub enum ModificationPosition {
 }
 
 impl ModificationPosition {
+    #[allow(dead_code)]
     fn to_string(&self) -> String {
         return match self {
             ModificationPosition::Anywhere => "Anywhere".to_string(),
@@ -69,8 +57,8 @@ pub struct Modification {
     accession: String,                      // TEXT
     name: String,                           // VARCHAR(255)
     position_as_int: i16,                   // SMALLINT
-    position: ModificationPosition,         
-    is_fix: bool,                           // BOOL                 
+    position: ModificationPosition,
+    is_fix: bool,                           // BOOL
     amino_acid_one_letter_code: String,     // CHAR(1), must be handled as String, because char does not implemen postgres::types::ToSql, so we can not pass references to .query()
     mono_mass: i64                          // BIGINT
 }
@@ -109,7 +97,7 @@ impl Modification {
             mono_mass
         )
     }
-    
+
     pub fn get_mono_mass(&self) -> i64 {
         return self.mono_mass;
     }
@@ -137,6 +125,7 @@ impl Modification {
         };
     }
 
+    #[allow(dead_code)]
     pub fn to_string(&self) -> String {
         return format!(
             "proteomic::models::amino_acids::modification::Modification\n\tid => {}\n\taccession => {}\n\tname => {}\n\tposition => {}\n\tis fix => {}\n\tamino acid => {}\n\tmono_mass => {}",
@@ -158,11 +147,17 @@ impl Modification {
             Ok(reader) => reader,
             Err(_) => panic!("something went wrong when reading the modifiication csv file. is the file existing and do you have permission to read it?")
         };
-        for row in reader.records() {
-            let row = row.unwrap();
+        for row_result in reader.records() {
+            let row = match row_result {
+                Ok(row) => row,
+                Err(err) => panic!("proteomic::models::amino_acids::modification::Modification::create_from_csv_file(): Error reading csv-line, see: {}", err)
+            };
             modifications.push(Self::new_from_csv_row(&row));
             if let Some(modification) = modifications.last_mut() {
-                modification.create(&conn);
+                match modification.create(&conn) {
+                    Ok(_) => (),
+                    Err(err) => panic!("proteomic::models::amino_acids::modification::Modification::create_from_csv_file(): Could not create modification {}, reason: {}", modification.get_accession(), err)
+                }
             };
         }
         return Box::new(modifications);
