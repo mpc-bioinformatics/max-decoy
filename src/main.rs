@@ -16,133 +16,16 @@ use std::collections::HashMap;
 use clap::{Arg, App, SubCommand};
 
 mod proteomic;
-use proteomic::utility::input_file_digester::file_digester::FileDigester;
-use proteomic::utility::input_file_digester::fasta_digester::FastaDigester;
 use proteomic::utility::decoy_generator::DecoyGenerator;
 use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
 
 use proteomic::tasks::indentification::{identification_task, IdentificationArguments};
+use proteomic::tasks::digestion::{digest_to_database_task, DigestionArguments};
 
 use proteomic::models::amino_acids::modification::Modification;
 use proteomic::models::mass;
 
-
-fn run_digestion(digest_cli_args: &clap::ArgMatches) {
-    let mut error_in_digest_args = false;
-    let input_file: &str = match digest_cli_args.value_of("INPUT_FILE") {
-        Some(file) => file,
-        None => {
-            println!("ERROR [digest]: No input file spezified.");
-            error_in_digest_args = true;
-            ""
-        }
-    };
-    let input_format: &str = match digest_cli_args.value_of("INPUT_FORMAT") {
-        Some(format) => format,
-        None => {
-            println!("ERROR [digest]: No input format spezified.");
-            ""
-        }
-    };
-    let cpu_thread_count: usize = num_cpus::get();
-    let thread_count: usize = match digest_cli_args.value_of("THREAD_COUNT") {
-        Some(count) => {
-            match count.to_lowercase().as_str() {
-                "max" => cpu_thread_count,
-                _ => match count.to_owned().parse::<usize>() {
-                    Ok(mut parsed_count) => {
-                        let cpu_thread_count: usize = num_cpus::get();
-                        if (1 > parsed_count) | (parsed_count > num_cpus::get()) {
-                            println!("ERROR [digest]: Threadcount must be between {} and {}.", 1, cpu_thread_count);
-                            error_in_digest_args = true;
-                        }
-                        parsed_count
-                    } ,
-                    Err(_err) => {
-                        println!("ERROR [digest]: Threadcount is not a positive integer.");
-                        error_in_digest_args = true;
-                        0
-                    }
-                }
-            }
-        },
-        None => {
-            println!("WARNING [digest]: No thread spezified, set it to 1.");
-            1
-        }
-    };
-    let number_of_missed_cleavages: i16 = match digest_cli_args.value_of("NUMBER_OF_MISSED_CLEAVAGES") {
-        Some(count) => {
-            match count.to_owned().parse::<i16>() {
-                Ok(parsed_count) => parsed_count,
-                Err(_err) => {
-                    println!("ERROR [digest]: Number of missed cleavages is not a positive integer.");
-                    error_in_digest_args = true;
-                    1
-                }
-            }
-        },
-        None => {
-            println!("WARNING [digest]: Number of missed cleavages not spezified, set it to 2.");
-            2
-        }
-    };
-    let min_peptide_length: usize = match digest_cli_args.value_of("MIN_PEPTIDE_LENGTH") {
-        Some(count) => {
-            match count.to_owned().parse::<usize>() {
-                Ok(parsed_count) => parsed_count,
-                Err(_err) => {
-                    println!("ERROR [digest]: Minimum peptide length is not an positive integer.");
-                    error_in_digest_args = true;
-                    1
-                }
-            }
-        },
-        None => {
-            println!("WARNING [digest]: Minimum peptide length not spezified, set it to 6");
-            6
-        }
-    };
-    let max_peptide_length: usize = match digest_cli_args.value_of("MAX_PEPTIDE_LENGTH") {
-        Some(count) => {
-            match count.to_owned().parse::<usize>() {
-                Ok(parsed_count) => parsed_count,
-                Err(_err) => {
-                    println!("ERROR [digest]: Max peptide length is not an positive integer.");
-                    error_in_digest_args = true;
-                    1
-                }
-            }
-        },
-        None => {
-            println!("WARNING [digest]: Max peptide length not spezified, set it to 50");
-            50
-        }
-    };
-    let enzym_name: &str = match digest_cli_args.value_of("ENZYM_NAME") {
-        Some(enzym) => enzym,
-        None => {
-            println!("WARNING [digest]: No enzym spezified, use Trypsin.");
-            "trypsin"
-        }
-    };
-    if !error_in_digest_args {
-        match input_format {
-            "fasta" => {
-                let mut digester = FastaDigester::new(input_file, thread_count, number_of_missed_cleavages, min_peptide_length, max_peptide_length);
-                let seconds = match enzym_name.to_lowercase().as_str() {
-                    "trypsin" => digester.process_file(enzym_name),
-                    _ => digester.process_file(enzym_name)
-                };
-                println!("need {} days", seconds / 60.0 / 60.0 / 24.0)
-            },
-            _ => println!("ERROR [digest]: Input format unknown.")
-        }
-    } else {
-        println!("ERROR [digest]: Did nothing, some error occured.")
-    }
-}
 
 fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
     let modification_csv_file: String = match decoy_generation_cli_args.value_of("MODIFICATION_FILE") {
@@ -307,8 +190,7 @@ fn run_spectrum_splitup(mz_ml_splitup_cli_args: &clap::ArgMatches) {
 
 /// Splits up the given mzML-file into mzML-files containing a single MS2-spectrum and writes them into the given destination folder
 fn run_identification(cli_args: &clap::ArgMatches) {
-    let ident_args = IdentificationArguments::from_cli_args(cli_args);
-    identification_task(&ident_args);
+
 }
 
 fn main() {
@@ -343,8 +225,9 @@ fn main() {
             Arg::with_name("NUMBER_OF_MISSED_CLEAVAGES")
             .short("c")
             .long("number-of-missed-cleavages")
-            .value_name("THREADCOUNT")
+            .value_name("NUMBER_OF_MISSED_CLEAVAGES")
             .takes_value(true)
+            .help("default: 2, maximal: 60")
         )
         .arg(
             Arg::with_name("MIN_PEPTIDE_LENGTH")
@@ -359,6 +242,7 @@ fn main() {
             .long("maximum-peptide_length")
             .value_name("MAX_PEPTIDE_LENGTH")
             .takes_value(true)
+            .help("maximal: 60")
         )
         .arg(
             Arg::with_name("ENZYM_NAME")
@@ -366,11 +250,7 @@ fn main() {
             .long("enzym-name")
             .value_name("ENZYM_NAME")
             .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("CHECK_DB_VALUES")
-            .long("check-db-values")
-            .help("Run digestion again, stores peptides in unique list and compares number of peptides in databases with number of peptides in unique list. (ATTENTIONS: Might runs out of RAM, because unique list is stored in RAM)")
+            .help("Trypsin")
         )
     )
     .subcommand(
@@ -540,7 +420,8 @@ fn main() {
 
 
     if let Some(cli_args) = matches.subcommand_matches("digest") {
-        run_digestion(cli_args);
+        let digestion_args = DigestionArguments::from_cli_args(cli_args);
+        digest_to_database_task(&digestion_args);
     }
     if let Some(cli_args) = matches.subcommand_matches("decoy-generation") {
         run_decoy_generation(cli_args);
@@ -552,7 +433,8 @@ fn main() {
         run_amino_acid_substitution(cli_args)
     }
     if let Some(cli_args) = matches.subcommand_matches("identification") {
-        run_identification(cli_args);
+        let ident_args = IdentificationArguments::from_cli_args(cli_args);
+        identification_task(&ident_args);
     }
 }
 
