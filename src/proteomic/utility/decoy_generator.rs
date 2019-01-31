@@ -210,10 +210,6 @@ impl DecoyGenerator {
         return decoys;
     }
 
-    pub fn vary_new_decoy(&self, new_decoy: &mut NewDecoy) {
-        unimplemented!();
-    }
-
     /// calculates a substitution map for swapping amino acids with each other.
     /// so one can lookup which difference in weight a substitution of amino acid x with y has.
     /// this function also considers fixed modifications
