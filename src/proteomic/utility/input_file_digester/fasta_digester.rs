@@ -52,7 +52,11 @@ impl FileDigester for FastaDigester {
         let mut header: String = String::new();
         let mut aa_sequence = String::new();
 
-        let mut transaction_size = 100;
+        // This should be dynamicaly updated in the future, depending on the type and number of returned postgresql errors from digestion.
+        // When the number of inserted proteins and peptides get high enough (numbers are depending on the capabilities of the database server),
+        // the database will return out of memory errors and/or some other errors, because it needs more and more time and memory to process the data.
+        // To reduce such errors, the number of peptides per transaction could be reduced.
+        let transaction_size = 100;
 
         // start
 
