@@ -24,7 +24,7 @@ pub struct Peptide {
 }
 
 impl Peptide {
-    pub fn new(aa_sequence: &str, number_of_missed_cleavages: i16) -> Self {
+    pub fn new(aa_sequence: &str, number_of_missed_cleavages: u8) -> Self {
         let generalized_aa_sequence: String = AminoAcid::gerneralize_sequence(aa_sequence);
         return Self {
             id: 0,
@@ -32,7 +32,7 @@ impl Peptide {
             weight: AminoAcid::get_sequence_weight(generalized_aa_sequence.as_str()),
             amino_acids_counts: *Self::count_amino_acids(generalized_aa_sequence.as_str()),
             aa_sequence: generalized_aa_sequence,
-            number_of_missed_cleavages: number_of_missed_cleavages,
+            number_of_missed_cleavages: number_of_missed_cleavages as i16,
         }
     }
 

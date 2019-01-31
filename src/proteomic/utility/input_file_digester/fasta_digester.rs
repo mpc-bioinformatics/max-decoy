@@ -19,7 +19,7 @@ use proteomic::models::enzyms;
 pub struct FastaDigester {
     fasta_file_path: String,
     thread_count: usize,
-    max_number_of_missed_cleavages: i16,
+    max_number_of_missed_cleavages: u8,
     min_peptide_length: usize,
     max_peptide_length: usize,
     message_logger: Arc<AsyncQueuedLogger>,
@@ -29,7 +29,7 @@ pub struct FastaDigester {
 
 // <E: DigestEnzym + Clone + Send + 'static>
 impl FileDigester for FastaDigester {
-    fn new(file_path: &str, thread_count: usize, max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> FastaDigester {
+    fn new(file_path: &str, thread_count: usize, max_number_of_missed_cleavages: u8, min_peptide_length: usize, max_peptide_length: usize) -> FastaDigester {
         return FastaDigester {
             fasta_file_path: file_path.to_owned(),
             thread_count: thread_count,

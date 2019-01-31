@@ -10,7 +10,7 @@ pub struct Trypsin<'t> {
     shortcut: &'static str, // the returnes string should only 5 charachters long because field 'digest_enzym' of table peptides in databse is limited to 5 characters
     digist_regex: onig::Regex,
     digest_replace: &'static str,
-    max_number_of_missed_cleavages: i16,
+    max_number_of_missed_cleavages: u8,
     // replace the next two attributes with a range in the feature: https://doc.rust-lang.org/std/ops/struct.Range.html#method.contains
     min_peptide_length: usize,
     max_peptide_length: usize,
@@ -22,7 +22,7 @@ pub struct Trypsin<'t> {
 }
 
 impl<'t> DigestEnzym<'t> for Trypsin<'t> {
-    fn new(database_connection: &'t postgres::Connection, max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Self {
+    fn new(database_connection: &'t postgres::Connection, max_number_of_missed_cleavages: u8, min_peptide_length: usize, max_peptide_length: usize) -> Self {
         Self {
             name: "Trypsin",
             shortcut: "try",
@@ -59,7 +59,7 @@ impl<'t> DigestEnzym<'t> for Trypsin<'t> {
         return self.shortcut;
     }
 
-    fn get_max_number_of_missed_cleavages(&self) -> i16 {
+    fn get_max_number_of_missed_cleavages(&self) -> u8 {
         return self.max_number_of_missed_cleavages;
     }
 

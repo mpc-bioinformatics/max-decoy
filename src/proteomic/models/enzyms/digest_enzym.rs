@@ -12,10 +12,10 @@ use proteomic::models::enzyms::transaction_summary::TransactionSummary;
 const DIGEST_WAIT_DURATION_FOR_ERRORS: time::Duration = time::Duration::from_secs(5);
 
 pub trait DigestEnzym<'e> {
-    fn new(database_connection: &'e  postgres::Connection, max_number_of_missed_cleavages: i16, min_peptide_length: usize, max_peptide_length: usize) -> Self;
+    fn new(database_connection: &'e  postgres::Connection, max_number_of_missed_cleavages: u8, min_peptide_length: usize, max_peptide_length: usize) -> Self;
     fn get_name(&self) -> &str;
     fn get_shortcut(&self) -> &str;
-    fn get_max_number_of_missed_cleavages(&self) -> i16;
+    fn get_max_number_of_missed_cleavages(&self) -> u8;
     fn get_digest_regex(&self) -> &onig::Regex;
     fn get_digest_replace(&self) -> &'static str;
     fn get_min_peptide_length(&self) -> usize;
