@@ -78,7 +78,7 @@ pub trait DigestEnzym<'e> {
                                 Ok(transaction_summary) => {
                                     match try {
                                         2 | 3 => {
-                                            local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} successfully done after {}. try.", protein.get_aa_sequence(), try));
+                                            local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} successfully done after {}. try.", protein.get_accession(), try));
                                             summary.log_push(local_log.join("\n").as_str());
                                         }
                                         _ => ()
@@ -88,16 +88,16 @@ pub trait DigestEnzym<'e> {
                                 },
                                 Err(query_error) => match try {
                                     1 => {
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 1. try. reason: {}", protein.get_aa_sequence(), query_error));
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 1. try. reason: {}", protein.get_accession(), query_error));
                                         thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
                                     }
                                     2 =>{
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 2. try. reason: {}", protein.get_aa_sequence(), query_error));
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 2. try. reason: {}", protein.get_accession(), query_error));
                                         thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
                                     }
                                     3 => {
                                         summary.set_unsolveable_errors_occured();
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 3. try. reason: {}", protein.get_aa_sequence(), query_error));
+                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 3. try. reason: {}", protein.get_accession(), query_error));
                                         summary.log_push(local_log.join("\n").as_str());
                                     }
                                     _ => ()
