@@ -9,6 +9,7 @@ extern crate threadpool;
 extern crate onig;
 extern crate time;
 extern crate csv;
+extern crate dotenv;
 
 use std::collections::HashMap;
 
