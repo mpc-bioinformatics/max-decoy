@@ -3,6 +3,9 @@ pub mod trypsin;
 pub mod digest_summary;
 pub mod transaction_summary;
 
+#[cfg(test)]
+mod tests;
+
 use self::digest_enzym::DigestEnzym;
 use self::trypsin::Trypsin;
 

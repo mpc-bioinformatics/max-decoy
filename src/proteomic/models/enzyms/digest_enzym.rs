@@ -49,7 +49,8 @@ pub trait DigestEnzym<'e> {
             }
         }
 
-        let mut peptides_for_transaction: Vec<Peptide> = Vec::new();
+        // HashSet ensures that within a transaction a peptide occures only once
+        let mut peptides_for_transaction_set: HashSet<Peptide> = HashSet::new();
 
         /*
          * clone aa_squence and pass it as mutable into replace_all
@@ -65,48 +66,22 @@ pub trait DigestEnzym<'e> {
             let mut new_peptide_aa_sequence: String = String::new();
             'missed_cleavage_loop: for number_of_missed_cleavages in 0..(self.get_max_number_of_missed_cleavages() + 1) {
                 let temp_idx: usize = peptide_idx + number_of_missed_cleavages as usize;
-                if temp_idx < peptides_without_missed_cleavages.len() {
-                    new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
-                    if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
-                        peptides_for_transaction.push(Peptide::new(new_peptide_aa_sequence.as_str(), number_of_missed_cleavages));
-                    }
-                    if peptides_for_transaction.len() == transaction_size {
-                        let mut local_log: Vec<String> = Vec::new();
-                        for try in 1..=3 {
-                            match self.do_peptide_transaction(protein, &mut peptides_for_transaction) {
-                                Ok(transaction_summary) => {
-                                    match try {
-                                        2 | 3 => {
-                                            local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} successfully done after {}. try.", protein.get_accession(), try));
-                                            summary.log_push(local_log.join("\n").as_str());
-                                        }
-                                        _ => ()
-                                    }
-                                    summary.merge_with_transaction_summary(&transaction_summary);
-                                    peptides_for_transaction.clear();
-                                },
-                                Err(query_error) => match try {
-                                    1 => {
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 1. try. reason: {}", protein.get_accession(), query_error));
-                                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
-                                    }
-                                    2 =>{
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 2. try. reason: {}", protein.get_accession(), query_error));
-                                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
-                                    }
-                                    3 => {
-                                        summary.set_unsolveable_errors_occured();
-                                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 3. try. reason: {}", protein.get_accession(), query_error));
-                                        summary.log_push(local_log.join("\n").as_str());
-                                    }
-                                    _ => ()
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    break 'missed_cleavage_loop;
+                // break if next temp_idx would outrange peptides_without_missed_cleavages
+                let break_missed_cleavage_loop_before_next_iteration = temp_idx + 1 >= peptides_without_missed_cleavages.len();
+                new_peptide_aa_sequence.push_str(peptides_without_missed_cleavages.get(temp_idx).unwrap());
+                if self.is_aa_sequence_in_range(&new_peptide_aa_sequence) {
+                    peptides_for_transaction_set.insert(Peptide::new(new_peptide_aa_sequence.as_str(), number_of_missed_cleavages));
                 }
+                //
+                if (peptides_for_transaction_set.len() > 0) & ((peptides_for_transaction_set.len() == transaction_size) | break_missed_cleavage_loop_before_next_iteration) {
+                    // problems with HashSets is that you cannot get items mutable but we need them mutable for Peptide.create().
+                    // the next line will move all Peptides from HashSet to a new Vec, left HashSet empty,
+                    // which is pretty good because we have to empty anyway for next iterations
+                    let mut peptides_for_transaction: Vec<Peptide> = peptides_for_transaction_set.drain().collect();
+                    self.do_peptide_transaction(protein, &mut peptides_for_transaction, &mut summary);
+
+                }
+                if break_missed_cleavage_loop_before_next_iteration { break 'missed_cleavage_loop; }
             }
         }
         if !summary.get_unsolveable_errors_occured() {
@@ -119,7 +94,41 @@ pub trait DigestEnzym<'e> {
         return summary;
     }
 
-    fn do_peptide_transaction(&mut self, protein: &Protein, peptides: &mut Vec<Peptide>) -> Result<TransactionSummary, QueryError> {
+    fn do_peptide_transaction(&mut self, protein: &Protein, peptides: &mut Vec<Peptide>, summary: &mut DigestSummary) {
+        let mut local_log: Vec<String> = Vec::new();
+        for try in 1..=3 {
+            match self.try_peptide_transaction(protein, peptides) {
+                Ok(transaction_summary) => {
+                    match try {
+                        2 | 3 => {
+                            local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} successfully done after {}. try.", protein.get_accession(), try));
+                            summary.log_push(local_log.join("\n").as_str());
+                        }
+                        _ => ()
+                    };
+                    summary.merge_with_transaction_summary(&transaction_summary);
+                },
+                Err(query_error) => match try {
+                    1 => {
+                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 1. try. reason: {}", protein.get_accession(), query_error));
+                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
+                    }
+                    2 =>{
+                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 2. try. reason: {}", protein.get_accession(), query_error));
+                        thread::sleep(DIGEST_WAIT_DURATION_FOR_ERRORS);
+                    }
+                    3 => {
+                        summary.set_unsolveable_errors_occured();
+                        local_log.push(format!("proteomic::models::enzyms::digest_enzym::DigestEnzym::digest(): transaction for protein {} failed on 3. try. reason: {}", protein.get_accession(), query_error));
+                        summary.log_push(local_log.join("\n").as_str());
+                    }
+                    _ => ()
+                }
+            };
+        }
+    }
+
+    fn try_peptide_transaction(&mut self, protein: &Protein, peptides: &mut Vec<Peptide>) -> Result<TransactionSummary, QueryError> {
         let mut summary = TransactionSummary::new();
         // create transaction for peptide and association
         let transaction = match self.get_database_connection().transaction() {
