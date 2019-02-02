@@ -364,7 +364,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("SPECTRUM_FILE")
-            .short("m")
+            .short("s")
             .long("spectrum-file")
             .value_name("SPECTRUM_FILE")
             .takes_value(true)
