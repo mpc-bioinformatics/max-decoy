@@ -19,7 +19,7 @@ pub trait PeptideInterface {
     fn get_amino_acid_at(&self, idx: usize) -> char;
 
     fn as_fasta_entry(header: &str, aa_sequence: &str) -> String {
-        return format!("{}\n{}", header, aa_sequence);
+        return format!("{}\n{}\n", header, aa_sequence);
     }
 
     fn count_amino_acids(aa_sequence: &str) -> Box<HashMap<char, i16>> {
