@@ -45,7 +45,7 @@ impl Peptide {
 
     fn get_comma_seperated_list_of_protein_accessions(&self, conn: &postgres::Connection) -> String {
         let select_query: String = format!(
-            "SELECT {protein_table}.accession FROM (SELECT * FROM {association_table} WHERE {association_table}.peptide_id = $1) INNER JOIN protein_table ON {association_table}.protein_id = {protein_table}.id;",
+            "SELECT {protein_table}.accession FROM (SELECT * FROM {association_table} WHERE {association_table}.peptide_id = $1) associations INNER JOIN {protein_table} ON associations.protein_id = {protein_table}.id;",
             association_table = PeptideProteinAssociation::get_table_name(),
             protein_table = Protein::get_table_name(),
         );
