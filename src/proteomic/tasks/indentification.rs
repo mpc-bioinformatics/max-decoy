@@ -170,15 +170,14 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             };
             if possible_targets.len() == 0 { break; }
             for peptide in possible_targets {
-                let mut modified_decoys_fits_precursor_tolerance = false;
+                #[allow(unused_assignments)] // `modified_target_fits_precursor_tolerance` is actually read in if-instruction below
+                let mut modified_target_fits_precursor_tolerance = false;
                 let mut modified_peptide = ModifiedPeptide::from_peptide(&peptide, *spectrum.get_precurso_mass(),  generator.get_lower_weight_limit(),  generator.get_upper_weight_limit(), &fixed_modifications_map);
-                if modified_peptide.hits_mass_tolerance() {
-                    modified_decoys_fits_precursor_tolerance = true;
-                } else {
-                    modified_peptide.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
-                    if modified_peptide.hits_mass_tolerance() { modified_decoys_fits_precursor_tolerance = true; }
+                modified_target_fits_precursor_tolerance = modified_peptide.hits_mass_tolerance();
+                if !modified_target_fits_precursor_tolerance {
+                    modified_target_fits_precursor_tolerance = modified_peptide.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
                 }
-                if modified_decoys_fits_precursor_tolerance {
+                if modified_target_fits_precursor_tolerance {
                     match fasta_file.write(
                         Peptide::as_fasta_entry(
                             peptide.get_header_with_modification_summary(&conn, modified_peptide.get_modification_summary_for_header().as_str()).as_str(),
@@ -210,7 +209,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                 let mut modified_decoys_fits_precursor_tolerance = false;
                 let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  generator.get_lower_weight_limit(),  generator.get_upper_weight_limit(), &fixed_modifications_map);
                 modified_decoys_fits_precursor_tolerance = modified_decoy.hits_mass_tolerance();
-                if modified_decoys_fits_precursor_tolerance {
+                if !modified_decoys_fits_precursor_tolerance {
                     modified_decoys_fits_precursor_tolerance = modified_decoy.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
                 }
                 if modified_decoys_fits_precursor_tolerance {
@@ -230,8 +229,9 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             loop_counter += 1;
         }
         stop_time = time::precise_time_s();
-        println!("found {} decoys in {} s\ngenerating decoys...", (identification_args.get_number_of_decoys_per_target() * target_counter) - remaining_number_of_decoys, stop_time - start_time);
+        println!("found {} decoys in {} s", (identification_args.get_number_of_decoys_per_target() * target_counter) - remaining_number_of_decoys, stop_time - start_time);
         if remaining_number_of_decoys > 0 {
+            println!("generating decoys...");
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
             start_time = time::precise_time_s();
             generator.generate_decoys(remaining_number_of_decoys);
