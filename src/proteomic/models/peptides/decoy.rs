@@ -145,7 +145,8 @@ impl Persistable<Decoy, i64, String> for Decoy {
                     ('v', row.get(22)),
                     ('w', row.get(23)),
                     ('y', row.get(24))
-                ].iter().cloned().collect()
+                ].iter().cloned().collect(),
+                modification_summary: String::new()
             }
         )
     }
