@@ -16,6 +16,9 @@ use proteomic::models::peptides::modified_peptide::ModifiedPeptide;
 use proteomic::models::peptides::decoy::Decoy;
 
 
+const QUERY_LIMIT_SIZE: i64 = 1000;
+
+
 pub struct IdentificationArguments {
     modification_csv_file: String,
     spectrum_file: String,
@@ -154,13 +157,14 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
         };
         let mut fasta_file = LineWriter::new(fasta_file);
-        let mut offset_counter = 0;
+        let mut loop_counter = 0;
         let mut target_counter = 0;
         // gether targets
         println!("search targets...");
         let mut start_time: f64 = time::precise_time_s();
         loop {
-            let possible_targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &(offset_counter * 1000), &1000]) {
+            let offset: i64 = loop_counter * QUERY_LIMIT_SIZE;
+            let possible_targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &offset, &QUERY_LIMIT_SIZE]) {
                 Ok(targets) => targets,
                 Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether targets: {}", err)
             };
@@ -186,16 +190,17 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                     }
                 }
             }
-            offset_counter += 1;
+            loop_counter += 1;
         }
         let mut stop_time: f64 = time::precise_time_s();
         println!("found {} targets in {} s\nsearching decoys in database...", target_counter, stop_time - start_time);
         // gether decoys
         let mut remaining_number_of_decoys = identification_args.get_number_of_decoys_per_target() * target_counter;
-        offset_counter = 0;
+        loop_counter = 0;
         start_time = time::precise_time_s();
         loop {
-            let mut possible_decoys = match Decoy::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &(offset_counter * 1000), &1000]) {
+            let offset: i64 = loop_counter * QUERY_LIMIT_SIZE;
+            let mut possible_decoys = match Decoy::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &offset, &QUERY_LIMIT_SIZE]) {
                 Ok(count) => count,
                 Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether decoy: {}", err)
             };
@@ -222,7 +227,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                 }
             }
             if remaining_number_of_decoys == 0 { break; }
-            offset_counter += 1;
+            loop_counter += 1;
         }
         stop_time = time::precise_time_s();
         println!("found {} decoys in {} s\ngenerating decoys...", (identification_args.get_number_of_decoys_per_target() * target_counter) - remaining_number_of_decoys, stop_time - start_time);
