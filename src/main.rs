@@ -22,6 +22,7 @@ use proteomic::utility::mz_ml::spectrum::Spectrum;
 
 use proteomic::tasks::indentification::{identification_task, IdentificationArguments};
 use proteomic::tasks::digestion::{digest_to_database_task, DigestionArguments};
+use proteomic::tasks::sequence_mass::{sequence_mass_task, SequenceMassArguments};
 
 use proteomic::models::amino_acids::modification::Modification;
 use proteomic::models::mass;
@@ -411,6 +412,16 @@ fn main() {
             .help("Integer, Default: 2")
         )
     )
+    .subcommand(
+        SubCommand::with_name("sequence-mass")
+        .arg(
+            Arg::with_name("SEQUENCE")
+            .short("s")
+            .long("sequence")
+            .value_name("SEQUENCE")
+            .takes_value(true)
+        )
+    )
     .get_matches();
 
 
@@ -430,6 +441,10 @@ fn main() {
     if let Some(cli_args) = matches.subcommand_matches("identification") {
         let ident_args = IdentificationArguments::from_cli_args(cli_args);
         identification_task(&ident_args);
+    }
+    if let Some(cli_args) = matches.subcommand_matches("sequence-mass") {
+        let seq_mass_args = SequenceMassArguments::from_cli_args(cli_args);
+        sequence_mass_task(&seq_mass_args);
     }
 }
 
