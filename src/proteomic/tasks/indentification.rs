@@ -157,6 +157,8 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         let mut offset_counter = 0;
         let mut target_counter = 0;
         // gether targets
+        println!("search targets...");
+        let mut start_time: f64 = time::precise_time_s();
         loop {
             let possible_targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &(offset_counter * 1000), &1000]) {
                 Ok(targets) => targets,
@@ -186,9 +188,12 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             }
             offset_counter += 1;
         }
+        let mut stop_time: f64 = time::precise_time_s();
+        println!("found {} targets in {} s\nsearching decoys in database...", target_counter, stop_time - start_time);
         // gether decoys
-        let mut number_of_decyos_to_generate = identification_args.get_number_of_decoys_per_target() * target_counter;
+        let mut remaining_number_of_decoys = identification_args.get_number_of_decoys_per_target() * target_counter;
         offset_counter = 0;
+        start_time = time::precise_time_s();
         loop {
             let mut possible_decoys = match Decoy::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &(offset_counter * 1000), &1000]) {
                 Ok(count) => count,
@@ -211,30 +216,38 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                             decoy.get_aa_sequence()
                         ).as_bytes()
                     ) {
-                        Ok(_) => number_of_decyos_to_generate -= 1,
+                        Ok(_) => remaining_number_of_decoys -= 1,
                         Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
                     }
                 }
             }
-            if number_of_decyos_to_generate == 0 { break; }
+            if remaining_number_of_decoys == 0 { break; }
             offset_counter += 1;
         }
-        generator.generate_decoys(number_of_decyos_to_generate);
-        match generator.get_decoys().lock() {
-            Ok(decoys) => {
-                for decoy in decoys.iter() {
-                    match fasta_file.write(
-                        Decoy::as_fasta_entry(
-                            decoy.get_header().as_str(),
-                            decoy.get_aa_sequence()
-                        ).as_bytes()
-                    ) {
-                        Ok(_) => number_of_decyos_to_generate -= 1,
-                        Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
+        stop_time = time::precise_time_s();
+        println!("found {} decoys in {} s\ngenerating decoys...", (identification_args.get_number_of_decoys_per_target() * target_counter) - remaining_number_of_decoys, stop_time - start_time);
+        if remaining_number_of_decoys > 0 {
+            let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
+            start_time = time::precise_time_s();
+            generator.generate_decoys(remaining_number_of_decoys);
+            match generator.get_decoys().lock() {
+                Ok(decoys) => {
+                    for decoy in decoys.iter() {
+                        match fasta_file.write(
+                            Decoy::as_fasta_entry(
+                                decoy.get_header().as_str(),
+                                decoy.get_aa_sequence()
+                            ).as_bytes()
+                        ) {
+                            Ok(_) => remaining_number_of_decoys -= 1,
+                            Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
+                        }
                     }
                 }
-            }
-            Err(_) => panic!("proteomic::tasks::identification::identification_task(): try to lock poisened mutex for decoys at generator.get_decoys().lock()")
-        };
+                Err(_) => panic!("proteomic::tasks::identification::identification_task(): try to lock poisened mutex for decoys at generator.get_decoys().lock()")
+            };
+            stop_time = time::precise_time_s();
+            println!("generate {} decoys in {} s", remaining_number_of_decoys_for_output, stop_time - start_time);
+        }
     }
 }
