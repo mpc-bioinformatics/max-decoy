@@ -8,7 +8,7 @@ use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::protein::Protein;
 use proteomic::models::peptide_protein_association::PeptideProteinAssociation;
 
-pub const PEPTIDE_HEADER_START: &'static str = ">PEPTIDE";
+pub const PEPTIDE_HEADER_START: &'static str = ">PEPTIDE_";
 
 /*
  * attributes id, length, number_of_missed_cleavages and weight should be unsigned, but postgresql crate and database does not support it
@@ -61,12 +61,12 @@ impl Peptide {
         return accessions.join(",");
     }
 
-    pub fn get_header(&self, conn: &postgres::Connection) -> String {
-        return format!("{} ProteinAccessions={}", PEPTIDE_HEADER_START, self.get_comma_seperated_list_of_protein_accessions(conn));
+    pub fn get_header(&self) -> String {
+        return format!("{}{} MaxDecoyId={}", PEPTIDE_HEADER_START, self.aa_sequence, self.id);
     }
 
-    pub fn get_header_with_modification_summary(&self, conn: &postgres::Connection, modification_summary: &str) -> String {
-        let mut header = self.get_header(&conn);
+    pub fn get_header_with_modification_summary(&self, modification_summary: &str) -> String {
+        let mut header = self.get_header();
         if modification_summary.len() > 0 {
             header.push_str(format!(" ModRes={}", modification_summary).as_str());
         }

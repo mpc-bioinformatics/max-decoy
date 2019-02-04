@@ -180,7 +180,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                 if modified_target_fits_precursor_tolerance {
                     match fasta_file.write(
                         Peptide::as_fasta_entry(
-                            peptide.get_header_with_modification_summary(&conn, modified_peptide.get_modification_summary_for_header().as_str()).as_str(),
+                            peptide.get_header_with_modification_summary(modified_peptide.get_modification_summary_for_header().as_str()).as_str(),
                             peptide.get_aa_sequence()
                         ).as_bytes()
                     ) {
