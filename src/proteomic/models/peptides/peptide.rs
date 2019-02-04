@@ -61,10 +61,6 @@ impl Peptide {
         return accessions.join(",");
     }
 
-    pub fn get_header(&self) -> String {
-        return format!("{}{} MaxDecoyId={}", PEPTIDE_HEADER_START, self.aa_sequence, self.id);
-    }
-
     pub fn get_header_with_modification_summary(&self, modification_summary: &str) -> String {
         let mut header = self.get_header();
         if modification_summary.len() > 0 {
@@ -234,6 +230,10 @@ impl PeptideInterface for Peptide {
             mass::convert_mass_to_float(self.weight),
             self.amino_acids_counts
         );
+    }
+
+    fn get_header(&self) -> String {
+        return format!("{}{} MaxDecoyId={}", PEPTIDE_HEADER_START, self.aa_sequence, self.id);
     }
 
     fn get_aa_sequence(&self) -> &str {

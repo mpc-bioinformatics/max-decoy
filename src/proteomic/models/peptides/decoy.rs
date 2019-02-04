@@ -42,14 +42,6 @@ impl Decoy {
         }
     }
 
-    pub fn get_header(&self) -> String {
-        let mut header = format!("{}{}", DECOY_HEADER_START, self.aa_sequence.as_str());
-        if self.modification_summary.len() > 0 {
-            header.push_str(format!(" ModRes={}", self.modification_summary).as_str());
-        }
-        return header;
-    }
-
     pub fn set_modification_summary(&mut self, modification_summary: &str) {
         self.modification_summary = modification_summary.to_owned();
     }
@@ -79,6 +71,14 @@ impl PeptideInterface for Decoy {
             mass::convert_mass_to_float(self.weight),
             self.amino_acids_counts
         );
+    }
+
+    fn get_header(&self) -> String {
+        let mut header = format!("{}{}", DECOY_HEADER_START, self.aa_sequence.as_str());
+        if self.modification_summary.len() > 0 {
+            header.push_str(format!(" ModRes={}", self.modification_summary).as_str());
+        }
+        return header;
     }
 
     fn get_aa_sequence(&self) -> &str {

@@ -5,6 +5,7 @@ use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_COUNTING;
 /// Peptides are all kinds of amino acids subsequences like Peptide, Decoy, ModifiedPeptides and ModifiedDecoy
 pub trait PeptideInterface {
     fn to_string(&self) -> String;
+    fn get_header(&self) -> String;
     fn get_aa_sequence(&self) -> &str;
     fn get_weight(&self) -> i64;
     fn get_length(&self) -> i32;
