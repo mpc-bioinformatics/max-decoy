@@ -14,3 +14,11 @@ pub fn convert_mass_to_float(mass: i64) -> f64 {
 pub fn thomson_to_dalton(thomson: f64, charge: u8) -> f64 {
     return thomson * charge as f64 - HYDROGEN_MONO_MASS * charge as f64;
 }
+
+/// Returns a tuple like(lower_precursor_tolerance_limit, upper_precursor_tolerance_limit)
+pub fn calculate_precursor_tolerance(precursor_mass: i64, upper_mass_limit_ppm: i64, lower_mass_limit_ppm: i64) -> (i64, i64) {
+    return (
+        precursor_mass - ((precursor_mass as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
+        precursor_mass + ((precursor_mass as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64)
+    )
+}

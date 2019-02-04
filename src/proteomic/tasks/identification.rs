@@ -14,6 +14,7 @@ use proteomic::models::peptides::peptide::Peptide;
 use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::peptides::modified_peptide::ModifiedPeptide;
 use proteomic::models::peptides::decoy::Decoy;
+use proteomic::models::mass;
 
 
 const QUERY_LIMIT_SIZE: i64 = 1000;
@@ -138,19 +139,15 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
     let mz_ml_reader = MzMlReader::new(identification_args.get_spectrum_file());
     let spectra = *mz_ml_reader.get_ms_two_spectra();
     for spectrum in spectra.iter() {
-        let generator: DecoyGenerator = DecoyGenerator::new(
+        let precursor_tolerance = mass::calculate_precursor_tolerance(
             *spectrum.get_precurso_mass(),
             identification_args.get_upper_mass_tolerance(),
-            identification_args.get_lower_mass_tolerance(),
-            identification_args.get_thread_count(),
-            identification_args.get_max_number_of_variable_modification_per_decoy(),
-            &fixed_modifications_map,
-            &variable_modifications_map
+            identification_args.get_lower_mass_tolerance()
         );
         let highest_possiple_sequence_length = *spectrum.get_precurso_mass() / AminoAcid::get_lightest().get_mono_mass() + 1;
         let lower_mass_tolerance_without_fixed_modifications = match haviest_fixed_modification {
-            Some(modification) => generator.get_lower_weight_limit() - (highest_possiple_sequence_length * modification.get_mono_mass()),
-            None => generator.get_lower_weight_limit()
+            Some(modification) => precursor_tolerance.0 - (highest_possiple_sequence_length * modification.get_mono_mass()),
+            None => precursor_tolerance.0
         };
         let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(format!("{}.fasta", spectrum.get_title()).as_str()) {
             Ok(file) => file,
@@ -164,7 +161,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         let mut start_time: f64 = time::precise_time_s();
         loop {
             let offset: i64 = loop_counter * QUERY_LIMIT_SIZE;
-            let possible_targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &offset, &QUERY_LIMIT_SIZE]) {
+            let possible_targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &precursor_tolerance.1, &offset, &QUERY_LIMIT_SIZE]) {
                 Ok(targets) => targets,
                 Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether targets: {}", err)
             };
@@ -172,7 +169,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             for peptide in possible_targets {
                 #[allow(unused_assignments)] // `modified_target_fits_precursor_tolerance` is actually read in if-instruction below
                 let mut modified_target_fits_precursor_tolerance = false;
-                let mut modified_peptide = ModifiedPeptide::from_peptide(&peptide, *spectrum.get_precurso_mass(),  generator.get_lower_weight_limit(),  generator.get_upper_weight_limit(), &fixed_modifications_map);
+                let mut modified_peptide = ModifiedPeptide::from_peptide(&peptide, *spectrum.get_precurso_mass(),  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
                 modified_target_fits_precursor_tolerance = modified_peptide.hits_mass_tolerance();
                 if !modified_target_fits_precursor_tolerance {
                     modified_target_fits_precursor_tolerance = modified_peptide.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
@@ -199,7 +196,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         start_time = time::precise_time_s();
         loop {
             let offset: i64 = loop_counter * QUERY_LIMIT_SIZE;
-            let mut possible_decoys = match Decoy::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &generator.get_upper_weight_limit(), &offset, &QUERY_LIMIT_SIZE]) {
+            let mut possible_decoys = match Decoy::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &precursor_tolerance.1, &offset, &QUERY_LIMIT_SIZE]) {
                 Ok(count) => count,
                 Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether decoy: {}", err)
             };
@@ -207,7 +204,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             for decoy in possible_decoys.iter_mut() {
                 #[allow(unused_assignments)] // `modified_decoys_fits_precursor_tolerance` is actually read in if-instruction below
                 let mut modified_decoys_fits_precursor_tolerance = false;
-                let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  generator.get_lower_weight_limit(),  generator.get_upper_weight_limit(), &fixed_modifications_map);
+                let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
                 modified_decoys_fits_precursor_tolerance = modified_decoy.hits_mass_tolerance();
                 if !modified_decoys_fits_precursor_tolerance {
                     modified_decoys_fits_precursor_tolerance = modified_decoy.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
@@ -233,6 +230,15 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         if remaining_number_of_decoys > 0 {
             println!("generating decoys...");
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
+            let generator: DecoyGenerator = DecoyGenerator::new(
+                *spectrum.get_precurso_mass(),
+                precursor_tolerance.0,
+                precursor_tolerance.1,
+                identification_args.get_thread_count(),
+                identification_args.get_max_number_of_variable_modification_per_decoy(),
+                &fixed_modifications_map,
+                &variable_modifications_map
+            );
             start_time = time::precise_time_s();
             generator.generate_decoys(remaining_number_of_decoys);
             match generator.get_decoys().lock() {

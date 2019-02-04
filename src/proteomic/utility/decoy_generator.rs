@@ -17,8 +17,8 @@ use proteomic::models::amino_acids::modification::Modification;
 
 pub struct DecoyGenerator {
     precursor_mass: i64,
-    upper_weight_limit: i64,
-    lower_weight_limit: i64,
+    upper_precursor_tolerance_limit: i64,
+    lower_precursor_tolerance_limit: i64,
     thread_count: usize,
     max_modifications_per_decoy: u8,
     fixed_modification_map: Arc<HashMap<char, Modification>>,
@@ -28,11 +28,11 @@ pub struct DecoyGenerator {
 }
 
 impl DecoyGenerator {
-    pub fn new(precursor_mass: i64, lower_mass_limit_ppm: i64, upper_mass_limit_ppm: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
+    pub fn new(precursor_mass: i64, lower_precursor_tolerance_limit: i64, upper_precursor_tolerance_limit: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
         return DecoyGenerator{
             precursor_mass: precursor_mass,
-            upper_weight_limit: precursor_mass + ((precursor_mass as f64 / 1000000.0 * upper_mass_limit_ppm as f64) as i64),
-            lower_weight_limit: precursor_mass - ((precursor_mass as f64 / 1000000.0 * lower_mass_limit_ppm as f64) as i64),
+            lower_precursor_tolerance_limit: lower_precursor_tolerance_limit,
+            upper_precursor_tolerance_limit: upper_precursor_tolerance_limit,
             thread_count: thread_count,
             max_modifications_per_decoy: max_modifications_per_decoy,
             fixed_modification_map: Arc::new(fixed_modification_map.clone()),
@@ -42,12 +42,12 @@ impl DecoyGenerator {
         }
     }
 
-    pub fn get_lower_weight_limit(&self) -> i64 {
-        return self.lower_weight_limit;
+    pub fn get_lower_precursor_tolerance_limit(&self) -> i64 {
+        return self.lower_precursor_tolerance_limit;
     }
 
-    pub fn get_upper_weight_limit(&self) -> i64 {
-        return self.upper_weight_limit;
+    pub fn get_upper_precursor_tolerance_limit(&self) -> i64 {
+        return self.upper_precursor_tolerance_limit;
     }
 
     pub fn get_decoys(&self) -> &Arc<Mutex<HashSet<Decoy>>> {
@@ -92,8 +92,8 @@ impl DecoyGenerator {
         println!(
             "Need to build {} decoys with weight {} to {}",
             number_of_decoys_to_generate,
-            mass::convert_mass_to_float(self.lower_weight_limit),
-            mass::convert_mass_to_float(self.upper_weight_limit)
+            mass::convert_mass_to_float(self.lower_precursor_tolerance_limit),
+            mass::convert_mass_to_float(self.upper_precursor_tolerance_limit)
         );
         // create threadpoll
         let thread_pool = ThreadPool::new(self.thread_count);
@@ -106,8 +106,8 @@ impl DecoyGenerator {
             let decoys_ptr = self.decoys.clone();
             // copy primitive attributes of DecoyGenerator which can be moved into thread
             let precursor_mass = self.precursor_mass;
-            let upper_weight_limit = self.upper_weight_limit;
-            let lower_weight_limit = self.lower_weight_limit;
+            let upper_precursor_tolerance_limit = self.upper_precursor_tolerance_limit;
+            let lower_precursor_tolerance_limit = self.lower_precursor_tolerance_limit;
             let max_modifications_per_decoy = self.max_modifications_per_decoy;
             // start thread
             thread_pool.execute(move||{
@@ -121,7 +121,7 @@ impl DecoyGenerator {
                         Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
                     };
                     // create new empty decoy
-                    let mut new_decoy: NewDecoy = NewDecoy::new_decoy(precursor_mass, lower_weight_limit, upper_weight_limit);
+                    let mut new_decoy: NewDecoy = NewDecoy::new_decoy(precursor_mass, lower_precursor_tolerance_limit, upper_precursor_tolerance_limit);
                     // let distribution_array = *Self::generate_amino_acid_distribution_array();
                     // repeat until new_decoy's weight greate then upper weight limit
                     'amino_acid_loop: loop {
@@ -201,7 +201,7 @@ impl DecoyGenerator {
                         _ => panic!("proteomic::utility::decoy_generator::DecoyGenerator.vary_decoy() could not check if shuffled target is peptide: {}", err)
                     }
                 }
-                let mut new_decoy: NewDecoy = NewDecoy::decoy_from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_weight_limit(), self.get_upper_weight_limit(), self.fixed_modification_map.as_ref());
+                let mut new_decoy: NewDecoy = NewDecoy::decoy_from_string(aa_sequence_as_string.as_str(), self.precursor_mass, self.get_lower_precursor_tolerance_limit(), self.get_upper_precursor_tolerance_limit(), self.fixed_modification_map.as_ref());
                 if new_decoy.hits_mass_tolerance() {
                     let mut decoy = new_decoy.to_decoy();
                     if !decoy.is_peptide(&conn) {
