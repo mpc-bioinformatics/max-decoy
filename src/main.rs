@@ -20,7 +20,7 @@ use proteomic::utility::decoy_generator::DecoyGenerator;
 use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
 use proteomic::utility::mz_ml::spectrum::Spectrum;
 
-use proteomic::tasks::indentification::{identification_task, IdentificationArguments};
+use proteomic::tasks::identification::{identification_task, IdentificationArguments};
 use proteomic::tasks::digestion::{digest_to_database_task, DigestionArguments};
 use proteomic::tasks::sequence_mass::{sequence_mass_task, SequenceMassArguments};
 
