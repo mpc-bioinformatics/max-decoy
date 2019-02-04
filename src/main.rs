@@ -380,10 +380,10 @@ fn main() {
             .help("Integer, Default: 0")
         )
         .arg(
-            Arg::with_name("NUMBER_OF_DECOYS_PER_TARGET")
+            Arg::with_name("NUMBER_OF_DECOYS")
             .short("d")
-            .long("number-of-decoys-per-target")
-            .value_name("NUMBER_OF_DECOYS_PER_TARGET")
+            .long("number-of-decoys")
+            .value_name("NUMBER_OF_DECOYS")
             .takes_value(true)
             .help("Integer, Default: 1000")
         )

@@ -23,7 +23,7 @@ pub struct IdentificationArguments {
     modification_csv_file: String,
     spectrum_file: String,
     max_number_of_variable_modification_per_decoy: u8,
-    number_of_decoys_per_target: usize,
+    number_of_decoys: usize,
     lower_mass_tolerance: i64,
     upper_mass_tolerance: i64,
     thread_count: usize
@@ -42,8 +42,8 @@ impl IdentificationArguments {
         return self.max_number_of_variable_modification_per_decoy;
     }
 
-    pub fn get_number_of_decoys_per_target(&self) -> usize {
-        return self.number_of_decoys_per_target;
+    pub fn get_number_of_decoys(&self) -> usize {
+        return self.number_of_decoys;
     }
 
     pub fn get_lower_mass_tolerance(&self) -> i64 {
@@ -74,7 +74,7 @@ impl IdentificationArguments {
             },
             None => 0
         };
-        let number_of_decoys_per_target: usize = match cli_args.value_of("NUMBER_OF_DECOYS_PER_TARGET") {
+        let number_of_decoys: usize = match cli_args.value_of("NUMBER_OF_DECOYS") {
             Some(number_string) => match number_string.to_owned().parse::<usize>() {
                 Ok(number) => number,
                 Err(_) => panic!("proteomic::tasks::identification::parse_identification_cli_arguments(): could not cast number-of-decoys to unsigned integer")
@@ -106,7 +106,7 @@ impl IdentificationArguments {
             modification_csv_file: modification_csv_file.to_owned(),
             spectrum_file: spectrum_file.to_owned(),
             max_number_of_variable_modification_per_decoy: max_number_of_variable_modification_per_decoy,
-            number_of_decoys_per_target: number_of_decoys_per_target,
+            number_of_decoys: number_of_decoys,
             lower_mass_tolerance: lower_mass_tolerance,
             upper_mass_tolerance: upper_mass_tolerance,
             thread_count: thread_count
@@ -194,7 +194,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         let mut stop_time: f64 = time::precise_time_s();
         println!("found {} targets in {} s\nsearching decoys in database...", target_counter, stop_time - start_time);
         // gether decoys
-        let mut remaining_number_of_decoys = identification_args.get_number_of_decoys_per_target() * target_counter;
+        let mut remaining_number_of_decoys = identification_args.get_number_of_decoys();
         loop_counter = 0;
         start_time = time::precise_time_s();
         loop {
@@ -229,7 +229,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             loop_counter += 1;
         }
         stop_time = time::precise_time_s();
-        println!("found {} decoys in {} s", (identification_args.get_number_of_decoys_per_target() * target_counter) - remaining_number_of_decoys, stop_time - start_time);
+        println!("found {} decoys in {} s", identification_args.get_number_of_decoys() - remaining_number_of_decoys, stop_time - start_time);
         if remaining_number_of_decoys > 0 {
             println!("generating decoys...");
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
