@@ -200,3 +200,9 @@ CREATE TABLE decoys (
     UNIQUE (aa_sequence, weight),
     PRIMARY KEY (id, weight)
 ) PARTITION BY RANGE (weight);
+
+
+-- decoy partitions
+-- 2 partitons for testing
+CREATE TABLE decoys_0 PARTITION OF decoys FOR VALUES FROM (1) TO (2014015050);
+CREATE TABLE decoys_1 PARTITION OF decoys FOR VALUES FROM (2014015051) TO (12000000000);
