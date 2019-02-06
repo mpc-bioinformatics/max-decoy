@@ -19,10 +19,6 @@ pub trait PeptideInterface {
     // or '_' if idx is larger the aa_sequence
     fn get_amino_acid_at(&self, idx: usize) -> char;
 
-    fn as_fasta_entry(header: &str, aa_sequence: &str) -> String {
-        return format!("{}\n{}\n", header, aa_sequence);
-    }
-
     fn count_amino_acids(aa_sequence: &str) -> Box<HashMap<char, i16>> {
         let mut amino_acids_counts: Box<HashMap<char, i16>> = Box::new(HashMap::new());
         for one_letter_code in AMINO_ACIDS_FOR_COUNTING {

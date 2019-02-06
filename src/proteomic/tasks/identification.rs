@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 use std::io::LineWriter;
 use std::fs::OpenOptions;
@@ -15,9 +15,11 @@ use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::peptides::modified_peptide::ModifiedPeptide;
 use proteomic::models::peptides::decoy::Decoy;
 use proteomic::models::mass;
+use proteomic::models::fasta_entry::FastaEntry;
 
 
 const QUERY_LIMIT_SIZE: i64 = 1000;
+const TARGET_DECOY_QUERY_CONDITION: &str = "weight BETWEEN $1 AND $2";
 
 
 pub struct IdentificationArguments {
@@ -128,44 +130,64 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
         }
     }
-    let mut haviest_fixed_modification: Option<&Modification> = None;
-    for (_, modification) in fixed_modifications_map.iter() {
-        haviest_fixed_modification = match haviest_fixed_modification {
-            Some(ref mut haviest_modification) if haviest_modification.get_mono_mass() < modification.get_mono_mass() => Some(modification),
-            Some(_) => continue,
-            None => Some(modification)
-        };
+    let mut sorted_modifyable_amino_acids: Vec<char> = fixed_modifications_map.keys().map(|key| *key).collect::<Vec<char>>();
+    sorted_modifyable_amino_acids.sort();
+    // prepare condition for target and decoys
+    let mut target_decoy_condition = TARGET_DECOY_QUERY_CONDITION.to_owned();
+    if sorted_modifyable_amino_acids.len() > 0 {
+        target_decoy_condition.push_str(" AND ");
+        let mut conditions: Vec<String> = Vec::new();
+        for (idx, amino_acid_one_letter_code) in sorted_modifyable_amino_acids.iter().enumerate() {
+            conditions.push(format!("{}_count = ${}", amino_acid_one_letter_code, idx + 3));
+        }
+        target_decoy_condition.push_str(conditions.join(" AND ").as_str());
     }
+    target_decoy_condition.push_str(";");
+    // initialize mzML-Reader
     let mz_ml_reader = MzMlReader::new(identification_args.get_spectrum_file());
     let spectra = *mz_ml_reader.get_ms_two_spectra();
+    // loop through spectra
     for spectrum in spectra.iter() {
+        // calculate tolerances and precursor tolerance
+        let tolerances = mass::calculate_upper_and_lower_tolerance(
+            *spectrum.get_precurso_mass(),
+            identification_args.get_upper_mass_tolerance(),
+            identification_args.get_lower_mass_tolerance()
+        );
         let precursor_tolerance = mass::calculate_precursor_tolerance(
             *spectrum.get_precurso_mass(),
             identification_args.get_upper_mass_tolerance(),
             identification_args.get_lower_mass_tolerance()
         );
-        let highest_possiple_sequence_length = *spectrum.get_precurso_mass() / AminoAcid::get_lightest().get_mono_mass() + 1;
-        let lower_mass_tolerance_without_fixed_modifications = match haviest_fixed_modification {
-            Some(modification) => precursor_tolerance.0 - (highest_possiple_sequence_length * modification.get_mono_mass()),
-            None => precursor_tolerance.0
-        };
-        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(format!("{}.fasta", spectrum.get_title()).as_str()) {
-            Ok(file) => file,
-            Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
-        };
-        let mut fasta_file = LineWriter::new(fasta_file);
-        let mut loop_counter = 0;
-        let mut target_counter = 0;
+        // build array with maximal
+        let mut max_modification_counts: HashMap<char, i16> = HashMap::new();
+        for amino_acid_one_letter_code in sorted_modifyable_amino_acids.iter() {
+            let amino_acid = AminoAcid::get(*amino_acid_one_letter_code);
+            let max_modification_count: i16 = match fixed_modifications_map.get(&amino_acid_one_letter_code) {
+                Some(modification) => (*spectrum.get_precurso_mass() / (amino_acid.get_mono_mass() + modification.get_mono_mass())) as i16,
+                None => continue
+            };
+            max_modification_counts.insert(*amino_acid_one_letter_code, max_modification_count);
+        }
+        // get condition values
+        let mut condition_values: Vec<(i64, i64, Vec<i16>)> = Vec::new();
+        get_max_modifyable_amino_acid_counts(&fixed_modifications_map, *spectrum.get_precurso_mass(), &tolerances, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
         // gether targets
         println!("search targets...");
+        let mut targets: HashSet<FastaEntry> = HashSet::new();
+        let mut decoys: HashSet<FastaEntry> = HashSet::new();
         let mut start_time: f64 = time::precise_time_s();
-        loop {
-            let offset: i64 = loop_counter * QUERY_LIMIT_SIZE;
-            let possible_targets = match Peptide::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &precursor_tolerance.1, &offset, &QUERY_LIMIT_SIZE]) {
+        for query_values in condition_values {
+            let mut values: Vec<&postgres::types::ToSql> = Vec::new();
+            values.push(&query_values.0);
+            values.push(&query_values.1);
+            for count in query_values.2.iter() {
+                values.push(count);
+            }
+            let possible_targets = match Peptide::find_where(&conn, target_decoy_condition.as_str(), values.as_ref()) {
                 Ok(targets) => targets,
                 Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether targets: {}", err)
             };
-            if possible_targets.len() == 0 { break; }
             for peptide in possible_targets {
                 #[allow(unused_assignments)] // `modified_target_fits_precursor_tolerance` is actually read in if-instruction below
                 let mut modified_target_fits_precursor_tolerance = false;
@@ -175,60 +197,46 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                     modified_target_fits_precursor_tolerance = modified_peptide.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
                 }
                 if modified_target_fits_precursor_tolerance {
-                    match fasta_file.write(
-                        Peptide::as_fasta_entry(
+                    targets.insert(
+                        FastaEntry::new(
                             peptide.get_header_with_modification_summary(modified_peptide.get_modification_summary_for_header().as_str()).as_str(),
                             peptide.get_aa_sequence()
-                        ).as_bytes()
-                    ) {
-                        Ok(_) => target_counter += 1,
-                        Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
-                    }
+                        )
+                    );
                 }
             }
-            loop_counter += 1;
+            if decoys.len() < identification_args.get_number_of_decoys() {
+                let mut possible_decoys = match Decoy::find_where(&conn, target_decoy_condition.as_str(), values.as_ref()) {
+                    Ok(count) => count,
+                    Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether decoy: {}", err)
+                };
+                for decoy in possible_decoys.iter_mut() {
+                    #[allow(unused_assignments)] // `modified_decoys_fits_precursor_tolerance` is actually read in if-instruction below
+                    let mut modified_decoys_fits_precursor_tolerance = false;
+                    let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
+                    modified_decoys_fits_precursor_tolerance = modified_decoy.hits_mass_tolerance();
+                    if !modified_decoys_fits_precursor_tolerance {
+                        modified_decoys_fits_precursor_tolerance = modified_decoy.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
+                    }
+                    if modified_decoys_fits_precursor_tolerance {
+                        decoy.set_modification_summary(modified_decoy.get_modification_summary_for_header().as_str());
+                        decoys.insert(
+                            FastaEntry::new(
+                                decoy.get_header().as_str(),
+                                decoy.get_aa_sequence()
+                            )
+                        );
+                    }
+                    if decoys.len() >= identification_args.get_number_of_decoys() { break; }
+                }
+            }
         }
         let mut stop_time: f64 = time::precise_time_s();
-        println!("found {} targets in {} s\nsearching decoys in database...", target_counter, stop_time - start_time);
+        println!("found {} targets and {} decoys in {} s\nsearching decoys in database...", targets.len(), decoys.len(), stop_time - start_time);
         // gether decoys
-        let mut remaining_number_of_decoys = identification_args.get_number_of_decoys();
-        loop_counter = 0;
-        start_time = time::precise_time_s();
-        loop {
-            let offset: i64 = loop_counter * QUERY_LIMIT_SIZE;
-            let mut possible_decoys = match Decoy::find_where(&conn, "weight BETWEEN $1 AND $2 OFFSET $3 LIMIT $4", &[&lower_mass_tolerance_without_fixed_modifications, &precursor_tolerance.1, &offset, &QUERY_LIMIT_SIZE]) {
-                Ok(count) => count,
-                Err(err) => panic!("proteomic::tasks::identification::identification_task(): could not gether decoy: {}", err)
-            };
-            if possible_decoys.len() == 0 { break; }
-            for decoy in possible_decoys.iter_mut() {
-                #[allow(unused_assignments)] // `modified_decoys_fits_precursor_tolerance` is actually read in if-instruction below
-                let mut modified_decoys_fits_precursor_tolerance = false;
-                let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
-                modified_decoys_fits_precursor_tolerance = modified_decoy.hits_mass_tolerance();
-                if !modified_decoys_fits_precursor_tolerance {
-                    modified_decoys_fits_precursor_tolerance = modified_decoy.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
-                }
-                if modified_decoys_fits_precursor_tolerance {
-                    decoy.set_modification_summary(modified_decoy.get_modification_summary_for_header().as_str());
-                    match fasta_file.write(
-                        Decoy::as_fasta_entry(
-                            decoy.get_header().as_str(),
-                            decoy.get_aa_sequence()
-                        ).as_bytes()
-                    ) {
-                        Ok(_) => remaining_number_of_decoys -= 1,
-                        Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
-                    }
-                }
-            }
-            if remaining_number_of_decoys == 0 { break; }
-            loop_counter += 1;
-        }
-        stop_time = time::precise_time_s();
-        println!("found {} decoys in {} s", identification_args.get_number_of_decoys() - remaining_number_of_decoys, stop_time - start_time);
-        if remaining_number_of_decoys > 0 {
+        if decoys.len() < identification_args.get_number_of_decoys()  {
             println!("generating decoys...");
+            let mut remaining_number_of_decoys = identification_args.get_number_of_decoys() - decoys.len();
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
             let generator: DecoyGenerator = DecoyGenerator::new(
                 *spectrum.get_precurso_mass(),
@@ -242,23 +250,65 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             start_time = time::precise_time_s();
             generator.generate_decoys(remaining_number_of_decoys);
             match generator.get_decoys().lock() {
-                Ok(decoys) => {
-                    for decoy in decoys.iter() {
-                        match fasta_file.write(
-                            Decoy::as_fasta_entry(
+                Ok(generated_decoys) => {
+                    for decoy in generated_decoys.iter() {
+                        decoys.insert(
+                            FastaEntry::new(
                                 decoy.get_header().as_str(),
                                 decoy.get_aa_sequence()
-                            ).as_bytes()
-                        ) {
-                            Ok(_) => remaining_number_of_decoys -= 1,
-                            Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
-                        }
+                            )
+                        );
                     }
                 }
                 Err(_) => panic!("proteomic::tasks::identification::identification_task(): try to lock poisened mutex for decoys at generator.get_decoys().lock()")
             };
             stop_time = time::precise_time_s();
             println!("generate {} decoys in {} s", remaining_number_of_decoys_for_output, stop_time - start_time);
+        }
+        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(format!("{}.fasta", spectrum.get_title()).as_str()) {
+            Ok(file) => file,
+            Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
+        };
+        let mut fasta_file = LineWriter::new(fasta_file);
+        for fasta_entry in targets {
+            match fasta_file.write(fasta_entry.to_string().as_bytes()) {
+                Ok(_) => (),
+                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
+            }
+        }
+        for fasta_entry in decoys {
+            match fasta_file.write(fasta_entry.to_string().as_bytes()) {
+                Ok(_) => (),
+                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
+            }
+        }
+    }
+}
+
+fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, Modification>, precursor: i64, tolerances: &(i64, i64), amino_acid_one_letter_codes: &Vec<char>, max_modification_counts: &HashMap<char, i16>, amino_acid_index: usize, count_combination: &mut Vec<i16>, results: &mut Vec<(i64, i64, Vec<i16>)>) {
+    let amino_acid_one_letter_code = match amino_acid_one_letter_codes.get(amino_acid_index) {
+        Some(one_letter_code) => one_letter_code,
+        None => &'_'
+    };
+    if let Some(max_modification_count) = max_modification_counts.get(amino_acid_one_letter_code) {
+        if let Some(ref modification) = fixed_modifications_map.get(amino_acid_one_letter_code) {
+            let mut new_precursor = precursor;
+            for mod_count in 0..*max_modification_count {
+                new_precursor -= modification.get_mono_mass();
+                if precursor > 0 {
+                    count_combination.push(mod_count);
+                    if amino_acid_index < max_modification_counts.len() - 1 {
+                        get_max_modifyable_amino_acid_counts(fixed_modifications_map, new_precursor, tolerances,  amino_acid_one_letter_codes, max_modification_counts, amino_acid_index + 1, count_combination, results);
+                    } else {
+                        results.push((
+                            precursor - tolerances.0,
+                            precursor + tolerances.1,
+                            count_combination.clone()
+                        ));
+                    }
+                    count_combination.pop();
+                }
+            }
         }
     }
 }
