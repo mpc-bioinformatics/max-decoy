@@ -158,6 +158,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             identification_args.get_upper_mass_tolerance(),
             identification_args.get_lower_mass_tolerance()
         );
+        println!("precursor => {}\nprecursor_tolerance => [{}, {}]", spectrum.get_precurso_mass(), precursor_tolerance.0, precursor_tolerance.1);
         // build array with maximal
         let mut max_modification_counts: HashMap<char, i16> = HashMap::new();
         for amino_acid_one_letter_code in sorted_modifyable_amino_acids.iter() {
@@ -291,17 +292,16 @@ fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, 
     };
     if let Some(max_modification_count) = max_modification_counts.get(amino_acid_one_letter_code) {
         if let Some(ref modification) = fixed_modifications_map.get(amino_acid_one_letter_code) {
-            let mut new_precursor = precursor;
             for mod_count in 0..*max_modification_count {
-                new_precursor -= modification.get_mono_mass();
-                if precursor > 0 {
+                let new_precursor = precursor - (mod_count as i64 * modification.get_mono_mass());
+                if new_precursor > 0 {
                     count_combination.push(mod_count);
                     if amino_acid_index < max_modification_counts.len() - 1 {
                         get_max_modifyable_amino_acid_counts(fixed_modifications_map, new_precursor, tolerances,  amino_acid_one_letter_codes, max_modification_counts, amino_acid_index + 1, count_combination, results);
                     } else {
                         results.push((
-                            precursor - tolerances.0,
-                            precursor + tolerances.1,
+                            new_precursor - tolerances.0,
+                            new_precursor + tolerances.1,
                             count_combination.clone()
                         ));
                     }
