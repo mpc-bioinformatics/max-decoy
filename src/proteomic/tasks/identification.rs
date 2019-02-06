@@ -138,11 +138,10 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         target_decoy_condition.push_str(" AND ");
         let mut conditions: Vec<String> = Vec::new();
         for (idx, amino_acid_one_letter_code) in sorted_modifyable_amino_acids.iter().enumerate() {
-            conditions.push(format!("{}_count = ${}", amino_acid_one_letter_code, idx + 3));
+            conditions.push(format!("{}_count = ${}", amino_acid_one_letter_code.to_ascii_lowercase(), idx + 3));
         }
         target_decoy_condition.push_str(conditions.join(" AND ").as_str());
     }
-    target_decoy_condition.push_str(";");
     // initialize mzML-Reader
     let mz_ml_reader = MzMlReader::new(identification_args.get_spectrum_file());
     let spectra = *mz_ml_reader.get_ms_two_spectra();
