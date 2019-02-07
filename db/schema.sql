@@ -158,18 +158,6 @@ CREATE TABLE peptides_proteins (
     PRIMARY KEY (peptide_id, protein_id)
 );
 
-
-CREATE TABLE IF NOT EXISTS amino_acid_modifications (
-    id BIGSERIAL PRIMARY KEY,
-    accession TEXT NOT NULL,
-    name TEXT,
-    position SMALLINT NOT NULL,
-    is_fix BOOLEAN NOT NULL,
-    amino_acid_one_letter_code CHAR(1) NOT null,
-    mono_mass BIGINT NOT NULL,
-    UNIQUE (accession)
-);
-
 -- decoys
 CREATE TABLE decoys (
     id BIGSERIAL NOT NULL,
