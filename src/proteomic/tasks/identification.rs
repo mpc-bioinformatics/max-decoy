@@ -16,6 +16,7 @@ use proteomic::models::peptides::modified_peptide::ModifiedPeptide;
 use proteomic::models::peptides::decoy::Decoy;
 use proteomic::models::mass;
 use proteomic::models::fasta_entry::FastaEntry;
+use proteomic::utility;
 
 
 const TARGET_DECOY_QUERY_CONDITION: &str = "weight BETWEEN $1 AND $2";
@@ -147,30 +148,29 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
     // loop through spectra
     for spectrum in spectra.iter() {
         // calculate tolerances and precursor tolerance
-        let tolerances = mass::calculate_upper_and_lower_tolerance(
-            *spectrum.get_precurso_mass(),
-            identification_args.get_upper_mass_tolerance(),
-            identification_args.get_lower_mass_tolerance()
+        let tolerances = (
+            mass::convert_mass_to_int(mass::thomson_to_dalton(utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_lower_mass_tolerance()), *spectrum.get_charge())),
+            mass::convert_mass_to_int(mass::thomson_to_dalton(utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_upper_mass_tolerance()), *spectrum.get_charge()))
         );
-        let precursor_tolerance = mass::calculate_precursor_tolerance(
-            *spectrum.get_precurso_mass(),
-            identification_args.get_upper_mass_tolerance(),
-            identification_args.get_lower_mass_tolerance()
+        let precursor_mass = mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio(), *spectrum.get_charge()));
+        let precursor_tolerance = (
+            precursor_mass - tolerances.0,
+            precursor_mass + tolerances.1
         );
-        println!("precursor => {}\nprecursor_tolerance => [{}, {}]", spectrum.get_precurso_mass(), precursor_tolerance.0, precursor_tolerance.1);
+        println!("precursor => {}\nprecursor_tolerance => [{}, {}]", precursor_mass, precursor_tolerance.0, precursor_tolerance.1);
         // build array with maximal
         let mut max_modification_counts: HashMap<char, i16> = HashMap::new();
         for amino_acid_one_letter_code in sorted_modifyable_amino_acids.iter() {
             let amino_acid = AminoAcid::get(*amino_acid_one_letter_code);
             let max_modification_count: i16 = match fixed_modifications_map.get(&amino_acid_one_letter_code) {
-                Some(modification) => (*spectrum.get_precurso_mass() / (amino_acid.get_mono_mass() + modification.get_mono_mass())) as i16,
+                Some(modification) => (precursor_mass / (amino_acid.get_mono_mass() + modification.get_mono_mass())) as i16,
                 None => continue
             };
             max_modification_counts.insert(*amino_acid_one_letter_code, max_modification_count);
         }
         // get condition values
         let mut condition_values: Vec<(i64, i64, Vec<i16>)> = Vec::new();
-        get_max_modifyable_amino_acid_counts(&fixed_modifications_map, *spectrum.get_precurso_mass(), &tolerances, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
+        get_max_modifyable_amino_acid_counts(&fixed_modifications_map, precursor_mass, &tolerances, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
         // gether targets
         println!("search targets...");
         let mut targets: HashSet<FastaEntry> = HashSet::new();
@@ -190,7 +190,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             for peptide in possible_targets {
                 #[allow(unused_assignments)] // `modified_target_fits_precursor_tolerance` is actually read in if-instruction below
                 let mut modified_target_fits_precursor_tolerance = false;
-                let mut modified_peptide = ModifiedPeptide::from_peptide(&peptide, *spectrum.get_precurso_mass(),  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
+                let mut modified_peptide = ModifiedPeptide::from_peptide(&peptide, precursor_mass,  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
                 modified_target_fits_precursor_tolerance = modified_peptide.hits_mass_tolerance();
                 if !modified_target_fits_precursor_tolerance {
                     modified_target_fits_precursor_tolerance = modified_peptide.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
@@ -212,7 +212,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                 for decoy in possible_decoys.iter_mut() {
                     #[allow(unused_assignments)] // `modified_decoys_fits_precursor_tolerance` is actually read in if-instruction below
                     let mut modified_decoys_fits_precursor_tolerance = false;
-                    let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, *spectrum.get_precurso_mass(),  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
+                    let mut modified_decoy = ModifiedPeptide::from_decoy(&decoy, precursor_mass,  precursor_tolerance.0,  precursor_tolerance.1, &fixed_modifications_map);
                     modified_decoys_fits_precursor_tolerance = modified_decoy.hits_mass_tolerance();
                     if !modified_decoys_fits_precursor_tolerance {
                         modified_decoys_fits_precursor_tolerance = modified_decoy.try_variable_modifications(identification_args.get_max_number_of_variable_modification_per_decoy(), &variable_modifications_map);
@@ -238,7 +238,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             let mut remaining_number_of_decoys = identification_args.get_number_of_decoys() - decoys.len();
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
             let generator: DecoyGenerator = DecoyGenerator::new(
-                *spectrum.get_precurso_mass(),
+                precursor_mass,
                 precursor_tolerance.0,
                 precursor_tolerance.1,
                 identification_args.get_thread_count(),

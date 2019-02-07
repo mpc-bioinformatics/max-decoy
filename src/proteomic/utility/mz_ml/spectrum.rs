@@ -16,7 +16,8 @@ const NAME_OF_TITLE_CV_PARAM: &str = "spectrum title";
 pub struct Spectrum {
     title: String,
     id_ref: String,
-    precursor_mass: i64,
+    mass_to_charge_ratio: f64,
+    charge: u8,
     xml: String,
     indent_level: usize
 }
@@ -106,7 +107,8 @@ impl Spectrum {
         return Self {
             title: title.unwrap(),
             id_ref: id_ref.unwrap(),
-            precursor_mass: mass::convert_mass_to_int(mass::thomson_to_dalton(mass_to_charge_ratio.unwrap(), charge.unwrap())),    // unwraps should be save at this point, becasue function panics if one of this values are None
+            mass_to_charge_ratio: mass_to_charge_ratio.unwrap(),    // unwrap should be save at this point, because this function will panics if no mass to charge ratio is found
+            charge: charge.unwrap(),                                // unwrap should be save at this point, because this function will panics if no charge is found
             xml: spectrum_xml.to_owned(),
             indent_level: indent_level
         }
@@ -140,8 +142,12 @@ impl Spectrum {
         return self.id_ref.as_str();
     }
 
-    pub fn get_precurso_mass(&self) -> &i64 {
-        return &self.precursor_mass;
+    pub fn get_mass_to_charge_ratio(&self) -> &f64 {
+        return &self.mass_to_charge_ratio;
+    }
+
+    pub fn get_charge(&self) -> &u8 {
+        return &self.charge;
     }
 
     pub fn get_xml(&self) -> &str {
@@ -154,9 +160,10 @@ impl Spectrum {
 
     pub fn to_string(&self) -> String {
         return format!(
-            "proteomic::utility::mz_ml::spectrum::Spectrum\n\ttitle => {}\n\tprecursor_mass => {}\n\txml => {}",
+            "proteomic::utility::mz_ml::spectrum::Spectrum\n\ttitle => {}\n\tm/z => {}\n\tcharge => {}\n\txml => {}",
             self.title,
-            mass::convert_mass_to_float(self.precursor_mass),
+            self.mass_to_charge_ratio,
+            self.charge,
             self.xml
         );
     }
