@@ -148,14 +148,15 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
     // loop through spectra
     for spectrum in spectra.iter() {
         // calculate tolerances and precursor tolerance
-        let tolerances = (
-            mass::convert_mass_to_int(mass::thomson_to_dalton(utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_lower_mass_tolerance()), *spectrum.get_charge())),
-            mass::convert_mass_to_int(mass::thomson_to_dalton(utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_upper_mass_tolerance()), *spectrum.get_charge()))
+        let mass_to_charge_tolerances = (
+            utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_lower_mass_tolerance()),
+            utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_upper_mass_tolerance())
         );
+        println!("ppms => [{}, {}]", mass_to_charge_tolerances.0, mass_to_charge_tolerances.1);
         let precursor_mass = mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio(), *spectrum.get_charge()));
         let precursor_tolerance = (
-            precursor_mass - tolerances.0,
-            precursor_mass + tolerances.1
+            mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio() - mass_to_charge_tolerances.0, *spectrum.get_charge())),
+            mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio() + mass_to_charge_tolerances.1, *spectrum.get_charge()))
         );
         println!("precursor => {}\nprecursor_tolerance => [{}, {}]", precursor_mass, precursor_tolerance.0, precursor_tolerance.1);
         // build array with maximal
@@ -170,7 +171,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         }
         // get condition values
         let mut condition_values: Vec<(i64, i64, Vec<i16>)> = Vec::new();
-        get_max_modifyable_amino_acid_counts(&fixed_modifications_map, precursor_mass, &tolerances, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
+        get_max_modifyable_amino_acid_counts(&fixed_modifications_map, precursor_tolerance, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
         // gether targets
         println!("search targets...");
         let mut targets: HashSet<FastaEntry> = HashSet::new();
@@ -284,7 +285,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
     }
 }
 
-fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, Modification>, precursor: i64, tolerances: &(i64, i64), amino_acid_one_letter_codes: &Vec<char>, max_modification_counts: &HashMap<char, i16>, amino_acid_index: usize, count_combination: &mut Vec<i16>, results: &mut Vec<(i64, i64, Vec<i16>)>) {
+fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, Modification>, precursor_tolerance: (i64, i64), amino_acid_one_letter_codes: &Vec<char>, max_modification_counts: &HashMap<char, i16>, amino_acid_index: usize, count_combination: &mut Vec<i16>, results: &mut Vec<(i64, i64, Vec<i16>)>) {
     let amino_acid_one_letter_code = match amino_acid_one_letter_codes.get(amino_acid_index) {
         Some(one_letter_code) => one_letter_code,
         None => &'_'
@@ -292,15 +293,19 @@ fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, 
     if let Some(max_modification_count) = max_modification_counts.get(amino_acid_one_letter_code) {
         if let Some(ref modification) = fixed_modifications_map.get(amino_acid_one_letter_code) {
             for mod_count in 0..*max_modification_count {
-                let new_precursor = precursor - (mod_count as i64 * modification.get_mono_mass());
-                if new_precursor > 0 {
+                let modification_mass = mod_count as i64 * modification.get_mono_mass();
+                let new_precursor_tolerance = (
+                    precursor_tolerance.0 - modification_mass,
+                    precursor_tolerance.1 - modification_mass
+                );
+                if precursor_tolerance.0 > 0 {
                     count_combination.push(mod_count);
                     if amino_acid_index < max_modification_counts.len() - 1 {
-                        get_max_modifyable_amino_acid_counts(fixed_modifications_map, new_precursor, tolerances,  amino_acid_one_letter_codes, max_modification_counts, amino_acid_index + 1, count_combination, results);
+                        get_max_modifyable_amino_acid_counts(fixed_modifications_map, new_precursor_tolerance,  amino_acid_one_letter_codes, max_modification_counts, amino_acid_index + 1, count_combination, results);
                     } else {
                         results.push((
-                            new_precursor - tolerances.0,
-                            new_precursor + tolerances.1,
+                            new_precursor_tolerance.0,
+                            new_precursor_tolerance.1,
                             count_combination.clone()
                         ));
                     }
