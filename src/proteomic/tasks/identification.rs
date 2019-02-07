@@ -18,7 +18,6 @@ use proteomic::models::mass;
 use proteomic::models::fasta_entry::FastaEntry;
 
 
-const QUERY_LIMIT_SIZE: i64 = 1000;
 const TARGET_DECOY_QUERY_CONDITION: &str = "weight BETWEEN $1 AND $2";
 
 
