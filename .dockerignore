@@ -1,0 +1,18 @@
+/target
+/.git
+/db
+/.vscode
+/.gitignore
+/.gitattributes
+/.env.example
+
+*.lock
+
+# output files
+*.log
+*.bak
+*.log.fasta
+*.csv
+*.txt
+*.mzML
+*.fasta

@@ -265,7 +265,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             stop_time = time::precise_time_s();
             println!("generate {} decoys in {} s", remaining_number_of_decoys_for_output, stop_time - start_time);
         }
-        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(format!("{}.fasta", spectrum.get_title()).as_str()) {
+        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(format!("{}.fasta", identification_args.get_spectrum_file()).as_str()) {
             Ok(file) => file,
             Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
         };
