@@ -1,5 +1,5 @@
 [package]
-name = "fasta_parser"
+name = "max_decoy"
 version = "0.1.0"
 authors = ["Dirk Winkelhardt <dirk.winkelhardt@gmail.com>"]
 
