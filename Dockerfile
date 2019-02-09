@@ -4,11 +4,11 @@ LABEL maintainer="dirk.winkelhardt@comkom.de"
 ARG UID=1000
 ARG GID=1000
 ARG CRUX_ZIP_URL=https://noble.gs.washington.edu/crux-downloads/crux-3.2/crux-3.2.Linux.x86_64.zip
-ARG CRUX_PATH_IN_ZIP=crux-3.2.Linux.x86_64/bin/
+ARG CRUX_BINARY_IN_ZIP=crux-3.2.Linux.x86_64/bin/crux
 ENV UID=$UID
 ENV GID=$GID
 ENV CRUX_ZIP_URL=$CRUX_ZIP_URL
-ENV CRUX_PATH_IN_ZIP=$CRUX_PATH_IN_ZIP
+ENV CRUX_BINARY_IN_ZIP=$CRUX_BINARY_IN_ZIP
 
 # mzML-splitup settings
 ENV SPECTRUM_SUFFIX=""
@@ -43,7 +43,7 @@ RUN mkdir /home/max-decoy/results \
     && cd /home/max-decoy \
     && rm -r /home/max-decoy/src \
     && curl -o crux.zip $CRUX_ZIP_URL \
-    && unzip crux.zip $CRUX_PATH_IN_ZIP \
+    && unzip -j crux.zip $CRUX_BINARY_IN_ZIP \
     && rm crux.zip
 
 CMD [./run_splitup_and_identification.sh]
