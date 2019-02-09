@@ -138,6 +138,11 @@ impl Spectrum {
         return self.title.as_str();
     }
 
+    /// Returns the title but will replace all character which are no diget, letter or a hyphen with an underscore.
+    pub fn get_title_as_filename(&self) -> String {
+        return onig::Regex::new(r"[^\dA-Za-z\-]").unwrap().replace_all(self.title.as_str(), "_");
+    }
+
     pub fn get_id_ref(&self) -> &str {
         return self.id_ref.as_str();
     }
@@ -217,7 +222,7 @@ impl Spectrum {
         // close indexedmzML-tag
         mz_ml_content.push_str("</indexedmzML>");
         // create mzML-file-path
-        let mut mz_ml_file_path = format!("{}/{}", destination_folder, self.get_title());
+        let mut mz_ml_file_path = format!("{}/{}", destination_folder, self.get_title_as_filename());
         if file_suffix.len() > 0 {
             mz_ml_file_path.push_str("_");
             mz_ml_file_path.push_str(file_suffix);
