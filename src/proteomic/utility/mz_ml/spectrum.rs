@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::prelude::*;
 use std::fs::OpenOptions;
+use std::path::{Path, PathBuf};
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -138,6 +139,11 @@ impl Spectrum {
         return self.title.as_str();
     }
 
+    /// Returns the title but will replace all character which are no diget, letter or a hyphen with an underscore.
+    pub fn get_title_as_filename(&self) -> String {
+        return onig::Regex::new(r"[^\dA-Za-z\-]").unwrap().replace_all(self.title.as_str(), "_");
+    }
+
     pub fn get_id_ref(&self) -> &str {
         return self.id_ref.as_str();
     }
@@ -173,7 +179,7 @@ impl Spectrum {
     /// # Arguments
     ///
     /// * `content_before_spectrum_list` - Content from original mzML-file, before spectrumListTag.
-    pub fn to_mz_ml(&self, content_before_spectrum_list: &str, destination_folder: &str, file_suffix: &str) {
+    pub fn to_mz_ml(&self, content_before_spectrum_list: &str, destination_folder: &Path, file_suffix: &str) {
         // create index list for mzML with open indexList-tag
         let mut index_list = format!("{}<indexList count=\"1\">\n",mz_ml::indent(1));
         // open index-tag for spectrums
@@ -217,12 +223,14 @@ impl Spectrum {
         // close indexedmzML-tag
         mz_ml_content.push_str("</indexedmzML>");
         // create mzML-file-path
-        let mut mz_ml_file_path = format!("{}/{}", destination_folder, self.get_title());
+        let mut mz_ml_file_path = destination_folder.to_path_buf();
+        let mut filename = self.get_title_as_filename();
         if file_suffix.len() > 0 {
-            mz_ml_file_path.push_str("_");
-            mz_ml_file_path.push_str(file_suffix);
+            filename.push_str("_");
+            filename.push_str(file_suffix);
         }
-        mz_ml_file_path.push_str(".mzML");
+        mz_ml_file_path.push(filename.as_str());
+        mz_ml_file_path.set_extension("mzML");
         // open and write file
         let mut file = match OpenOptions::new().read(true).write(true).create(true).open(mz_ml_file_path) {
             Ok(file) => file,

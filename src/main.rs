@@ -12,6 +12,7 @@ extern crate csv;
 extern crate dotenv;
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use clap::{Arg, App, SubCommand};
 
@@ -170,8 +171,8 @@ fn run_spectrum_splitup(mz_ml_splitup_cli_args: &clap::ArgMatches) {
         Some(mz_ml_file) => mz_ml_file,
         None => panic!("you must provide a MzMl-file")
     };
-    let destination_folder: &str = match mz_ml_splitup_cli_args.value_of("DESTINATION_FOLDER") {
-        Some(destination_folder) => destination_folder,
+    let destination_folder: &Path = match mz_ml_splitup_cli_args.value_of("DESTINATION_FOLDER") {
+        Some(destination_folder) => Path::new(destination_folder),
         None => panic!("you must provide a destination folder")
     };
     let file_suffix: &str = match mz_ml_splitup_cli_args.value_of("FILE_SUFFIX") {

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 use std::io::LineWriter;
 use std::fs::OpenOptions;
+use std::path::PathBuf;
 
 
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
@@ -265,7 +266,10 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             stop_time = time::precise_time_s();
             println!("generate {} decoys in {} s", remaining_number_of_decoys_for_output, stop_time - start_time);
         }
-        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(format!("{}.fasta", identification_args.get_spectrum_file()).as_str()) {
+        // build filename by replace the file extension with fasta
+        let mut fasta_filename = PathBuf::from(identification_args.get_spectrum_file());
+        fasta_filename.set_extension("fasta");
+        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(fasta_filename) {
             Ok(file) => file,
             Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
         };
