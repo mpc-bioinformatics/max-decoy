@@ -147,13 +147,9 @@ impl DecoyGenerator {
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
                         if !decoy.is_peptide(&conn) {
                             match decoy.create(&conn) {
-                                Ok(query_ok) => match query_ok {
-                                    // use only newly created decoys
-                                    QueryOk::Created => match decoys_ptr.lock() {
-                                        Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                                        Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
-                                    },
-                                    _ => ()
+                                Ok(_) => match decoys_ptr.lock() {
+                                    Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
                                 },
                                 Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
                             };
@@ -166,13 +162,9 @@ impl DecoyGenerator {
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
                         if !decoy.is_peptide(&conn) {
                             match decoy.create(&conn) {
-                                Ok(query_ok) => match query_ok {
-                                    // use only newly created decoys
-                                    QueryOk::Created => match decoys_ptr.lock() {
-                                        Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                                        Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
-                                    },
-                                    _ => ()
+                                Ok(_) => match decoys_ptr.lock() {
+                                    Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
+                                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
                                 },
                                 Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
                             };
