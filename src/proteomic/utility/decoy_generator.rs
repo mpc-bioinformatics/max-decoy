@@ -1,7 +1,9 @@
 use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time;
 
-use rand::seq::SliceRandom;
+use rand::prelude::*;
 use threadpool::ThreadPool;
 
 use proteomic::models::mass;
@@ -98,7 +100,7 @@ impl DecoyGenerator {
         // create threadpoll
         let thread_pool = ThreadPool::new(self.thread_count);
         // loop for starting threads
-        for _ in 0..self.thread_count {
+        for thread_id in 0..self.thread_count {
             // create copies of thread safe pointer of DecoyGenerator which can be move into thread
             let fixed_modification_map_ptr = self.fixed_modification_map.clone();
             let variable_modification_map_ptr = self.variable_modification_map.clone();
@@ -145,14 +147,11 @@ impl DecoyGenerator {
                     if new_decoy.hits_mass_tolerance() {
                         let mut decoy = new_decoy.to_decoy();
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
-                        if !decoy.is_peptide(&conn) {
-                            match decoy.create(&conn) {
-                                Ok(_) => match decoys_ptr.lock() {
-                                    Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
-                                },
-                                Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
-                            };
+                        if Self::save_new_decoy(&conn, &thread_id, &mut decoy) {
+                            match decoys_ptr.lock() {
+                                Ok(mut decoys) => { decoys.insert(decoy); }, // wrap in block, to supress return
+                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisoned mutex for decoys")
+                            }
                         }
                         continue 'decoy_loop;
                     }
@@ -160,14 +159,11 @@ impl DecoyGenerator {
                     {
                         let mut decoy = new_decoy.to_decoy();
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
-                        if !decoy.is_peptide(&conn) {
-                            match decoy.create(&conn) {
-                                Ok(_) => match decoys_ptr.lock() {
-                                    Ok(mut decoys) => { decoys.insert(decoy); },    // wrap insert into block, to 'suppress' return
-                                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
-                                },
-                                Err(err) => println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Could not create decoy: {}", err)
-                            };
+                        if Self::save_new_decoy(&conn, &thread_id, &mut decoy) {
+                            match decoys_ptr.lock() {
+                                Ok(mut decoys) => { decoys.insert(decoy); }, // wrap in block, to supress return
+                                Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisoned mutex for decoys")
+                            }
                         }
                         continue 'decoy_loop;
                     }
@@ -175,6 +171,31 @@ impl DecoyGenerator {
             });
         }
         thread_pool.join();
+    }
+
+    fn save_new_decoy(conn: &postgres::Connection, thread_id: &usize, decoy: &mut Decoy) -> bool {
+        if !decoy.is_peptide(&conn) {
+            let mut error_occured = false;
+            for _ in 0..3 {
+                match decoy.create(&conn) {
+                    Ok(_) => {
+                        if error_occured {
+                            println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Previous error resolved", thread_id);
+                        }
+                        return true;
+                    },
+                    Err(err) => {
+                        error_occured = true;
+                        let mut rng = rand::thread_rng();
+                        let wait_for: u64 = rng.gen_range(1, 6);
+                        println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Could not create decoy: {}. Try again in {} seconds", thread_id, err, wait_for);
+                        thread::sleep(time::Duration::from_secs(wait_for));
+                        continue;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     pub fn vary_targets(&self, targets: &Vec<Peptide>, number_of_decoys_to_generate: usize) -> Box<HashSet<Decoy>> {
