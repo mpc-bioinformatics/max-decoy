@@ -136,7 +136,7 @@ impl DecoyGenerator {
                         };
                         match new_decoy.push_amino_acid_and_fix_modification(&random_amino_acid, &modification_option) {
                             Ok(push_ok) => match push_ok {
-                                PushAminoAcidOk::GreterThenMassTolerance => break 'amino_acid_loop,
+                                PushAminoAcidOk::GreaterThenMassTolerance => break 'amino_acid_loop,
                                 _ => ()
                             },
                             Err(push_err) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Error at new_decoy.push_amino_acid_and_fix_modification: {}", push_err)

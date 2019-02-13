@@ -19,7 +19,7 @@ use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_DECOY_GENERATION
 
 pub enum PushAminoAcidOk {
     LessThenMassTolerance,
-    GreterThenMassTolerance,
+    GreaterThenMassTolerance,
     HitsMassTolerance
 }
 
@@ -294,7 +294,7 @@ impl ModifiedPeptide {
         if self.weight < self.upper_weight_limit {
             return Ok(PushAminoAcidOk::LessThenMassTolerance);
         } else if self.weight > self.upper_weight_limit {
-            return Ok(PushAminoAcidOk::GreterThenMassTolerance);
+            return Ok(PushAminoAcidOk::GreaterThenMassTolerance);
         } else {
             return Ok(PushAminoAcidOk::HitsMassTolerance);
         }
