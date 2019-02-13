@@ -149,11 +149,13 @@ impl DecoyGenerator {
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
                         if Self::save_new_decoy(&conn, &thread_id, &mut decoy) {
                             match decoys_ptr.lock() {
-                                Ok(mut decoys) => { decoys.insert(decoy); }, // wrap in block, to supress return
+                                Ok(mut decoys) => {
+                                    decoys.insert(decoy);
+                                    continue 'decoy_loop;
+                                },
                                 Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisoned mutex for decoys")
                             }
                         }
-                        continue 'decoy_loop;
                     }
                     if new_decoy.swap_amino_acids_to_hit_mass_tolerance(one_amino_acid_substitute_map_ptr.as_ref(), fixed_modification_map_ptr.as_ref(), max_modifications_per_decoy, variable_modification_map_ptr.as_ref())
                     {
@@ -161,11 +163,13 @@ impl DecoyGenerator {
                         decoy.set_modification_summary(new_decoy.get_modification_summary_for_header().as_str());
                         if Self::save_new_decoy(&conn, &thread_id, &mut decoy) {
                             match decoys_ptr.lock() {
-                                Ok(mut decoys) => { decoys.insert(decoy); }, // wrap in block, to supress return
+                                Ok(mut decoys) => {
+                                    decoys.insert(decoy);
+                                    continue 'decoy_loop;
+                                },
                                 Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisoned mutex for decoys")
                             }
                         }
-                        continue 'decoy_loop;
                     }
                 }
             });
