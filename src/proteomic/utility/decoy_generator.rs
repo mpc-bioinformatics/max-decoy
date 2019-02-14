@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
 
+use time as better_time;
+
 use rand::prelude::*;
 use threadpool::ThreadPool;
 
@@ -174,7 +176,46 @@ impl DecoyGenerator {
                 }
             });
         }
+        // report thread
+        let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+        let stop_flag_ptr = stop_flag.clone();
+        let decoys_ptr = self.decoys.clone();
+        let report_thread_handle = thread::spawn(move || {
+            let mut stop_loop = false;
+            let log_intervall: i64 = 20;
+            let start_at_sec = better_time::now().to_timespec().sec;
+            let mut next_write_at = start_at_sec + log_intervall;
+            while !stop_loop {
+                match stop_flag_ptr.lock() {
+                    Ok(ref stop) if **stop => {
+                        stop_loop = true;
+                    },
+                    Ok(_) => (),
+                    Err(_) => panic!("proteomic::utility::logger::performance_logger::PerformanceLogger.thread: tried to lock a poisoned mutex for 'stop_flag'")
+                }
+                let now_in_seconds = better_time::now().to_timespec().sec;
+                if now_in_seconds >= next_write_at {
+                    next_write_at = now_in_seconds + log_intervall;
+                    match decoys_ptr.lock() {
+                        Ok(decoys) => {
+                            println!("SUBTHREAD.decoys => {}", decoys.len());
+                        },
+                        Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisoned mutex for decoys")
+                    }
+                }
+            }
+        });
+        // wait for generator threads
         thread_pool.join();
+        // stop report thread
+        match stop_flag.lock() {
+            Ok(mut stop) => *stop = true,
+            Err(_) => panic!("proteomic::utility::logger::performance_logger::PerformanceLogger.thread: tried to lock a poisoned mutex for 'stop_flag'")
+        }
+        match report_thread_handle.join() {
+            Ok(_) => (),
+            Err(_) => ()
+        };
     }
 
     fn save_new_decoy(conn: &postgres::Connection, thread_id: &usize, decoy: &mut Decoy) -> bool {
@@ -182,11 +223,16 @@ impl DecoyGenerator {
             let mut error_occured = false;
             for _ in 0..3 {
                 match decoy.create(&conn) {
-                    Ok(_) => {
-                        if error_occured {
-                            println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Previous error resolved", thread_id);
-                        }
-                        return true;
+                    Ok(query_ok) => match query_ok {
+                        // return true only if decoy is newly created. decoys which not newly created are already added from other threads or
+                        // add during previous target/decoy search
+                        QueryOk::Created => {
+                            if error_occured {
+                                println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Previous error resolved", thread_id);
+                            }
+                            return true;
+                        },
+                        _ => return false
                     },
                     Err(err) => {
                         error_occured = true;
