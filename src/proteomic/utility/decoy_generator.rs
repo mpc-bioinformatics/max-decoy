@@ -55,7 +55,7 @@ impl DecoyGenerator {
             one_amino_acid_substitute_map: Arc::new(*Self::get_one_amino_acid_substitute_map(fixed_modification_map)),
             decoys: Arc::new(Mutex::new(HashSet::new())),
             max_time_for_decoy_generation: max_time_for_decoy_generation,
-            timeout: Arc::new(AtomicBool::new(false))
+            timeout: Arc::new(AtomicBool::new(true))
         }
     }
 
@@ -106,8 +106,8 @@ impl DecoyGenerator {
     }
 
     pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) -> GenerationResult {
-        // set stop flag to true
-        self.timeout.store(true, Ordering::Relaxed);
+        // set timeout to false before start
+        self.timeout.store(false, Ordering::Relaxed);
         // create threadpoll
         let thread_pool = ThreadPool::new(self.thread_count);
         // loop for starting threads
@@ -190,6 +190,7 @@ impl DecoyGenerator {
         let start_at_sec = better_time::now().to_timespec().sec;                // lock start sec
         let stop_at_sec = start_at_sec + self.max_time_for_decoy_generation;    // lock stop sec
         let mut next_report_at = start_at_sec + REPORT_INTERVALL;               // next second to report
+        thread::sleep(time::Duration::from_secs(2));                            // wait for threads to start
         while thread_pool.active_count() > 0 {
             let now_in_seconds = better_time::now().to_timespec().sec;          // current second
             if now_in_seconds >= next_report_at {
