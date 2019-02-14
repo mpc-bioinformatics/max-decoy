@@ -1,5 +1,6 @@
 use std::collections::{HashSet, HashMap};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time;
 
@@ -8,7 +9,6 @@ use time as better_time;
 use rand::prelude::*;
 use threadpool::ThreadPool;
 
-use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::peptides::peptide_interface::PeptideInterface;
 use proteomic::models::peptides::peptide::Peptide;
@@ -19,6 +19,15 @@ use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::amino_acids::amino_acid::AMINO_ACIDS_FOR_DECOY_GENERATION;
 use proteomic::models::amino_acids::modification::Modification;
 
+
+const REPORT_INTERVALL: i64 = 20;   // report all 20 seconds
+
+#[derive(PartialEq)]
+pub enum GenerationResult {
+    Success,
+    Timeout
+}
+
 pub struct DecoyGenerator {
     precursor_mass: i64,
     upper_precursor_tolerance_limit: i64,
@@ -28,11 +37,13 @@ pub struct DecoyGenerator {
     fixed_modification_map: Arc<HashMap<char, Modification>>,
     variable_modification_map: Arc<HashMap<char, Modification>>,
     one_amino_acid_substitute_map: Arc<HashMap<char, HashMap<char, i64>>>,
-    decoys: Arc<Mutex<HashSet<Decoy>>>
+    decoys: Arc<Mutex<HashSet<Decoy>>>,
+    max_time_for_decoy_generation: i64,
+    timeout: Arc<AtomicBool>
 }
 
 impl DecoyGenerator {
-    pub fn new(precursor_mass: i64, lower_precursor_tolerance_limit: i64, upper_precursor_tolerance_limit: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>) -> Self {
+    pub fn new(precursor_mass: i64, lower_precursor_tolerance_limit: i64, upper_precursor_tolerance_limit: i64, thread_count: usize, max_modifications_per_decoy: u8, fixed_modification_map: &HashMap<char, Modification>, variable_modification_map: &HashMap<char, Modification>, max_time_for_decoy_generation: i64) -> Self {
         return DecoyGenerator{
             precursor_mass: precursor_mass,
             lower_precursor_tolerance_limit: lower_precursor_tolerance_limit,
@@ -42,7 +53,9 @@ impl DecoyGenerator {
             fixed_modification_map: Arc::new(fixed_modification_map.clone()),
             variable_modification_map: Arc::new(variable_modification_map.clone()),
             one_amino_acid_substitute_map: Arc::new(*Self::get_one_amino_acid_substitute_map(fixed_modification_map)),
-            decoys: Arc::new(Mutex::new(HashSet::new()))
+            decoys: Arc::new(Mutex::new(HashSet::new())),
+            max_time_for_decoy_generation: max_time_for_decoy_generation,
+            timeout: Arc::new(AtomicBool::new(false))
         }
     }
 
@@ -92,13 +105,9 @@ impl DecoyGenerator {
         return Box::new(amino_acids_and_modification_tupels);
     }
 
-    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) {
-        println!(
-            "Need to build {} decoys with weight {} to {}",
-            number_of_decoys_to_generate,
-            mass::convert_mass_to_float(self.lower_precursor_tolerance_limit),
-            mass::convert_mass_to_float(self.upper_precursor_tolerance_limit)
-        );
+    pub fn generate_decoys(&self, number_of_decoys_to_generate: usize) -> GenerationResult {
+        // set stop flag to true
+        self.timeout.store(true, Ordering::Relaxed);
         // create threadpoll
         let thread_pool = ThreadPool::new(self.thread_count);
         // loop for starting threads
@@ -108,6 +117,7 @@ impl DecoyGenerator {
             let variable_modification_map_ptr = self.variable_modification_map.clone();
             let one_amino_acid_substitute_map_ptr = self.one_amino_acid_substitute_map.clone();
             let decoys_ptr = self.decoys.clone();
+            let timeout_ptr = self.timeout.clone();
             // copy primitive attributes of DecoyGenerator which can be moved into thread
             let precursor_mass = self.precursor_mass;
             let upper_precursor_tolerance_limit = self.upper_precursor_tolerance_limit;
@@ -124,6 +134,7 @@ impl DecoyGenerator {
                         Ok(decoys) => if decoys.len() >= number_of_decoys_to_generate { break 'decoy_loop; },
                         Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisened mutex for decoys")
                     };
+                    if timeout_ptr.load(Ordering::Relaxed) { break 'decoy_loop; }
                     // create new empty decoy
                     let mut new_decoy: NewDecoy = NewDecoy::new_decoy(precursor_mass, lower_precursor_tolerance_limit, upper_precursor_tolerance_limit);
                     // let distribution_array = *Self::generate_amino_acid_distribution_array();
@@ -176,74 +187,76 @@ impl DecoyGenerator {
                 }
             });
         }
-        // report thread
-        let stop_flag: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-        let stop_flag_ptr = stop_flag.clone();
-        let decoys_ptr = self.decoys.clone();
-        let report_thread_handle = thread::spawn(move || {
-            let mut stop_loop = false;
-            let log_intervall: i64 = 20;
-            let start_at_sec = better_time::now().to_timespec().sec;
-            let mut next_write_at = start_at_sec + log_intervall;
-            while !stop_loop {
-                match stop_flag_ptr.lock() {
-                    Ok(ref stop) if **stop => {
-                        stop_loop = true;
+        let start_at_sec = better_time::now().to_timespec().sec;                // lock start sec
+        let stop_at_sec = start_at_sec + self.max_time_for_decoy_generation;    // lock stop sec
+        let mut next_report_at = start_at_sec + REPORT_INTERVALL;               // next second to report
+        while thread_pool.active_count() > 0 {
+            let now_in_seconds = better_time::now().to_timespec().sec;          // current second
+            if now_in_seconds >= next_report_at {
+                next_report_at = now_in_seconds + REPORT_INTERVALL;
+                match self.decoys.lock() {
+                    Ok(decoys) => {
+                        println!("decoy generation progress: {} decoys generated", decoys.len());
                     },
-                    Ok(_) => (),
-                    Err(_) => panic!("proteomic::utility::logger::performance_logger::PerformanceLogger.thread: tried to lock a poisoned mutex for 'stop_flag'")
-                }
-                let now_in_seconds = better_time::now().to_timespec().sec;
-                if now_in_seconds >= next_write_at {
-                    next_write_at = now_in_seconds + log_intervall;
-                    match decoys_ptr.lock() {
-                        Ok(decoys) => {
-                            println!("SUBTHREAD.decoys => {}", decoys.len());
-                        },
-                        Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): try to lock poisoned mutex for decoys")
-                    }
+                    Err(_) => panic!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Tried to lock poisoned mutex for decoys")
                 }
             }
-        });
-        // wait for generator threads
-        thread_pool.join();
-        // stop report thread
-        match stop_flag.lock() {
-            Ok(mut stop) => *stop = true,
-            Err(_) => panic!("proteomic::utility::logger::performance_logger::PerformanceLogger.thread: tried to lock a poisoned mutex for 'stop_flag'")
+            // signal threads to stop and break the loop if max generation time is reached
+            if now_in_seconds >= stop_at_sec {
+                self.timeout.store(true, Ordering::Relaxed);
+                println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Running out of timem stop threads");
+                break;
+            }
         }
-        match report_thread_handle.join() {
-            Ok(_) => (),
-            Err(_) => ()
-        };
+        // wait for generator threads to stop
+        thread_pool.join();
+        if !self.timeout.load(Ordering::Relaxed) {
+            return GenerationResult::Success;
+        } else {
+            return GenerationResult::Timeout
+        }
     }
 
     fn save_new_decoy(conn: &postgres::Connection, thread_id: &usize, decoy: &mut Decoy) -> bool {
+        let mut error_occured = false;
         if !decoy.is_peptide(&conn) {
-            let mut error_occured = false;
+            // try 3 times to create the decoy
             for _ in 0..3 {
                 match decoy.create(&conn) {
-                    Ok(query_ok) => match query_ok {
-                        // return true only if decoy is newly created. decoys which not newly created are already added from other threads or
-                        // add during previous target/decoy search
-                        QueryOk::Created => {
-                            if error_occured {
-                                println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Previous error resolved", thread_id);
-                            }
-                            return true;
+                    Ok(query_ok) => {
+                        let result = match query_ok {
+                            // return true only if decoy is newly created. decoys which not newly created are already added from other threads or
+                            // add during previous target/decoy search
+                            QueryOk::Created => true,
+                            _ => false
+                        };
+                        // if previous
+                        if error_occured {
+                            println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Previous error resolved", thread_id);
+                        }
+                        return result;
+                    }
+                    Err(query_err) => match query_err {
+                        // NoReturn is mostly a indication for a conflict between two or more threads which try to create the same decoy
+                        QueryError::NoReturn => {
+                            error_occured = true;
+                            // wait a random time between 1 and 6 seconds so hopefully one thread get the chance to create the decoy before the other threads
+                            let mut rng = rand::thread_rng();
+                            let wait_for: u64 = rng.gen_range(1, 6);
+                            println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Conflict with other threads which try to create the same decoy. Try again in {} seconds", thread_id, wait_for);
+                            thread::sleep(time::Duration::from_secs(wait_for));
+                            continue;
                         },
-                        _ => return false
-                    },
-                    Err(err) => {
-                        error_occured = true;
-                        let mut rng = rand::thread_rng();
-                        let wait_for: u64 = rng.gen_range(1, 6);
-                        println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Could not create decoy: {}. Try again in {} seconds", thread_id, err, wait_for);
-                        thread::sleep(time::Duration::from_secs(wait_for));
-                        continue;
+                        _ => {
+                            println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Unresoveable error occured: {}, continue with next decoy", thread_id, query_err);
+                            return false;
+                        }
                     }
                 }
             }
+        }
+        if error_occured {
+            println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys()_thread_{}: Previous error could not resolved, continue with next decoy", thread_id);
         }
         return false;
     }

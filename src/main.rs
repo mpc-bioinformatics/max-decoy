@@ -103,6 +103,13 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
             1
         }
     };
+    let max_time_for_decoy_generation: i64 = match decoy_generation_cli_args.value_of("MAX_TIME_FOR_DECOY_GENERATION") {
+            Some(number_string) => match number_string.to_owned().parse::<i64>() {
+                Ok(number) => number,
+                Err(_) => panic!("proteomic::tasks::identification::parse_identification_cli_arguments(): could not cast max-time-for-decoy-generation to integer")
+            },
+            None => 60
+        };
     // prepare modifications
     let mods = Modification::create_from_csv_file(&modification_csv_file);
     let mut fixed_modifications_map: HashMap<char, Modification> = HashMap::new();
@@ -115,7 +122,14 @@ fn run_decoy_generation(decoy_generation_cli_args: &clap::ArgMatches) {
         }
     }
     let start_time: f64 = time::precise_time_s();
-    let generator: DecoyGenerator = DecoyGenerator::new(precursor_mass, upper_mass_tolerance, lower_mass_tolerance, thread_count, max_modifications_per_decoy, &fixed_modifications_map, &variable_modifications_map);
+    let generator: DecoyGenerator = DecoyGenerator::new(
+        precursor_mass, upper_mass_tolerance,
+        lower_mass_tolerance, thread_count,
+        max_modifications_per_decoy,
+        &fixed_modifications_map,
+        &variable_modifications_map,
+        max_time_for_decoy_generation
+    );
     generator.generate_decoys(number_of_decoys);
     let stop_time: f64 = time::precise_time_s();
     println!("generate {} decoys in {} s", number_of_decoys, stop_time - start_time);
@@ -305,6 +319,14 @@ fn main() {
             .value_name("THREAD_COUNT")
             .takes_value(true)
         )
+        .arg(
+            Arg::with_name("MAX_TIME_FOR_DECOY_GENERATION")
+            .long("max-time-for-decoy-generation")
+            .value_name("MAX_TIME_FOR_DECOY_GENERATION")
+            .takes_value(true)
+            .default_value("60")
+            .help("Integer, Unit: seconds Default: 60")
+        )
     )
     .subcommand(
         SubCommand::with_name("spectrum-splitup")
@@ -411,6 +433,14 @@ fn main() {
             .value_name("THREAD_COUNT")
             .takes_value(true)
             .help("Integer, Default: 2")
+        )
+        .arg(
+            Arg::with_name("MAX_TIME_FOR_DECOY_GENERATION")
+            .long("max-time-for-decoy-generation")
+            .value_name("MAX_TIME_FOR_DECOY_GENERATION")
+            .takes_value(true)
+            .default_value("60")
+            .help("Integer, Unit: seconds Default: 60")
         )
     )
     .subcommand(

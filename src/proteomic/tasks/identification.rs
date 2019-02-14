@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use proteomic::models::amino_acids::amino_acid::AminoAcid;
 use proteomic::models::amino_acids::modification::Modification;
 use proteomic::utility::mz_ml::mz_ml_reader::MzMlReader;
-use proteomic::utility::decoy_generator::DecoyGenerator;
+use proteomic::utility::decoy_generator::{DecoyGenerator, GenerationResult};
 use proteomic::utility::database_connection::DatabaseConnection;
 use proteomic::models::persistable::Persistable;
 use proteomic::models::peptides::peptide::Peptide;
@@ -30,7 +30,8 @@ pub struct IdentificationArguments {
     number_of_decoys: usize,
     lower_mass_tolerance: i64,
     upper_mass_tolerance: i64,
-    thread_count: usize
+    thread_count: usize,
+    max_time_for_decoy_generation: i64
 }
 
 impl IdentificationArguments {
@@ -60,6 +61,10 @@ impl IdentificationArguments {
 
     pub fn get_thread_count(&self) -> usize {
         return self.thread_count;
+    }
+
+    pub fn get_max_time_for_decoy_generation(&self) -> i64 {
+        return self.max_time_for_decoy_generation;
     }
 
     pub fn from_cli_args(cli_args: &clap::ArgMatches) -> IdentificationArguments {
@@ -106,6 +111,13 @@ impl IdentificationArguments {
             },
             None => 2
         };
+        let max_time_for_decoy_generation: i64 = match cli_args.value_of("MAX_TIME_FOR_DECOY_GENERATION") {
+            Some(number_string) => match number_string.to_owned().parse::<i64>() {
+                Ok(number) => number,
+                Err(_) => panic!("proteomic::tasks::identification::parse_identification_cli_arguments(): could not cast max-time-for-decoy-generation to integer")
+            },
+            None => 60
+        };
         return Self {
             modification_csv_file: modification_csv_file.to_owned(),
             spectrum_file: spectrum_file.to_owned(),
@@ -113,7 +125,8 @@ impl IdentificationArguments {
             number_of_decoys: number_of_decoys,
             lower_mass_tolerance: lower_mass_tolerance,
             upper_mass_tolerance: upper_mass_tolerance,
-            thread_count: thread_count
+            thread_count: thread_count,
+            max_time_for_decoy_generation: max_time_for_decoy_generation
         }
     }
 }
@@ -153,13 +166,12 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_lower_mass_tolerance()),
             utility::parts_per_million_of(*spectrum.get_mass_to_charge_ratio(), identification_args.get_upper_mass_tolerance())
         );
-        println!("ppms => [{}, {}]", mass_to_charge_tolerances.0, mass_to_charge_tolerances.1);
         let precursor_mass = mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio(), *spectrum.get_charge()));
         let precursor_tolerance = (
             mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio() - mass_to_charge_tolerances.0, *spectrum.get_charge())),
             mass::convert_mass_to_int(mass::thomson_to_dalton(*spectrum.get_mass_to_charge_ratio() + mass_to_charge_tolerances.1, *spectrum.get_charge()))
         );
-        println!("precursor => {}\nprecursor_tolerance => [{}, {}]", precursor_mass, precursor_tolerance.0, precursor_tolerance.1);
+        println!("precursor_tolerance => ({}, {})", precursor_tolerance.0, precursor_tolerance.1);
         // build array with maximal
         let mut max_modification_counts: HashMap<char, i16> = HashMap::new();
         for amino_acid_one_letter_code in sorted_modifyable_amino_acids.iter() {
@@ -174,7 +186,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         let mut condition_values: Vec<(i64, i64, Vec<i16>)> = Vec::new();
         get_max_modifyable_amino_acid_counts(&fixed_modifications_map, precursor_tolerance, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
         // gether targets
-        println!("search targets...");
+        println!("search targets and decoys in database...");
         let mut targets: HashSet<FastaEntry> = HashSet::new();
         let mut decoys: HashSet<FastaEntry> = HashSet::new();
         let mut start_time: f64 = time::precise_time_s();
@@ -233,12 +245,13 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             }
         }
         let mut stop_time: f64 = time::precise_time_s();
-        println!("found {} targets and {} decoys in {} s\nsearching decoys in database...", targets.len(), decoys.len(), stop_time - start_time);
-        // gether decoys
+        println!("found {} targets and {} decoys in {} s", targets.len(), decoys.len(), stop_time - start_time);
+        let mut decoy_generation_result: GenerationResult = GenerationResult::Success;
+        // generate decoys
         if decoys.len() < identification_args.get_number_of_decoys()  {
-            println!("generating decoys...");
             let mut remaining_number_of_decoys = identification_args.get_number_of_decoys() - decoys.len();
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
+            println!("need to generate {} decoys...", remaining_number_of_decoys_for_output);
             let generator: DecoyGenerator = DecoyGenerator::new(
                 precursor_mass,
                 precursor_tolerance.0,
@@ -246,10 +259,11 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                 identification_args.get_thread_count(),
                 identification_args.get_max_number_of_variable_modification_per_decoy(),
                 &fixed_modifications_map,
-                &variable_modifications_map
+                &variable_modifications_map,
+                identification_args.get_max_time_for_decoy_generation()
             );
             start_time = time::precise_time_s();
-            generator.generate_decoys(remaining_number_of_decoys);
+            decoy_generation_result = generator.generate_decoys(remaining_number_of_decoys);
             match generator.get_decoys().lock() {
                 Ok(generated_decoys) => {
                     for decoy in generated_decoys.iter() {
@@ -269,21 +283,34 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         // build filename by replace the file extension with fasta
         let mut fasta_filename = PathBuf::from(identification_args.get_spectrum_file());
         fasta_filename.set_extension("fasta");
-        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(fasta_filename) {
+        let fasta_file = match OpenOptions::new().read(true).write(true).create(true).open(&fasta_filename) {
             Ok(file) => file,
             Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
         };
         let mut fasta_file = LineWriter::new(fasta_file);
-        for fasta_entry in targets {
+        for fasta_entry in targets.iter() {
             match fasta_file.write(fasta_entry.to_string().as_bytes()) {
                 Ok(_) => (),
-                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
+                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to FASTA-file: {}", err)
             }
         }
-        for fasta_entry in decoys {
+        for fasta_entry in decoys.iter() {
             match fasta_file.write(fasta_entry.to_string().as_bytes()) {
                 Ok(_) => (),
-                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to file: {}", err)
+                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to FASTA-file: {}", err)
+            }
+        }
+        // if decoy generation timed out, write the number of used decoys to a file with file-extension "less_decoys"
+        if decoy_generation_result == GenerationResult::Timeout {
+            fasta_filename.set_extension("less_decoys");
+            let less_decoy_file = match OpenOptions::new().read(true).write(true).create(true).open(&fasta_filename) {
+                Ok(file) => file,
+                Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
+            };
+            let mut less_decoy_file = LineWriter::new(less_decoy_file);
+            match less_decoy_file.write(format!("{}", decoys.len()).as_bytes()) {
+                Ok(_) => (),
+                Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to less_decoy-file: {}", err)
             }
         }
     }
