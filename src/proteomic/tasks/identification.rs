@@ -251,7 +251,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         if decoys.len() < identification_args.get_number_of_decoys()  {
             let mut remaining_number_of_decoys = identification_args.get_number_of_decoys() - decoys.len();
             let remaining_number_of_decoys_for_output = remaining_number_of_decoys;
-            println!("need to generate {} decoys...", remaining_number_of_decoys_for_output);
+            println!("need to generate {} decoys...", remaining_number_of_decoys);
             let generator: DecoyGenerator = DecoyGenerator::new(
                 precursor_mass,
                 precursor_tolerance.0,
@@ -264,8 +264,10 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             );
             start_time = time::precise_time_s();
             decoy_generation_result = generator.generate_decoys(remaining_number_of_decoys);
+            stop_time = time::precise_time_s();
             match generator.get_decoys().lock() {
                 Ok(generated_decoys) => {
+                    println!("generate {} decoys in {} s", generated_decoys.len(), stop_time - start_time);
                     for decoy in generated_decoys.iter() {
                         decoys.insert(
                             FastaEntry::new(
@@ -277,8 +279,6 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
                 }
                 Err(_) => panic!("proteomic::tasks::identification::identification_task(): try to lock poisened mutex for decoys at generator.get_decoys().lock()")
             };
-            stop_time = time::precise_time_s();
-            println!("generate {} decoys in {} s", remaining_number_of_decoys_for_output, stop_time - start_time);
         }
         // build filename by replace the file extension with fasta
         let mut fasta_filename = PathBuf::from(identification_args.get_spectrum_file());
