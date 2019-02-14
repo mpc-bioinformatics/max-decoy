@@ -204,7 +204,7 @@ impl DecoyGenerator {
             // signal threads to stop and break the loop if max generation time is reached
             if now_in_seconds >= stop_at_sec {
                 self.timeout.store(true, Ordering::Relaxed);
-                println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Running out of timem stop threads");
+                println!("proteomic::utility::decoy_generator::DecoyGenerator.generate_decoys(): Running out of time, stop threads");
                 break;
             }
         }
