@@ -18,6 +18,7 @@ use proteomic::models::peptides::decoy::Decoy;
 use proteomic::models::mass;
 use proteomic::models::fasta_entry::FastaEntry;
 use proteomic::utility;
+use proteomic::utility::comet_parameter;
 
 
 const TARGET_DECOY_QUERY_CONDITION: &str = "weight BETWEEN $1 AND $2";
@@ -246,6 +247,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         }
         let mut stop_time: f64 = time::precise_time_s();
         println!("found {} targets and {} decoys in {} s", targets.len(), decoys.len(), stop_time - start_time);
+        let mut number_of_target_and_decoys = targets.len() + decoys.len();
         let mut decoy_generation_result: GenerationResult = GenerationResult::Success;
         // generate decoys
         if decoys.len() < identification_args.get_number_of_decoys()  {
@@ -268,6 +270,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             match generator.get_decoys().lock() {
                 Ok(generated_decoys) => {
                     println!("generate {} decoys in {} s", generated_decoys.len(), stop_time - start_time);
+                    number_of_target_and_decoys += generated_decoys.len();
                     for decoy in generated_decoys.iter() {
                         decoys.insert(
                             FastaEntry::new(
@@ -302,16 +305,29 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         }
         // if decoy generation timed out, write the number of used decoys to a file with file-extension "less_decoys"
         if decoy_generation_result == GenerationResult::Timeout {
-            fasta_filename.set_extension("less_decoys");
-            let less_decoy_file = match OpenOptions::new().read(true).write(true).create(true).open(&fasta_filename) {
+            let mut less_decoy_filename = fasta_filename.to_owned();
+            less_decoy_filename.set_extension("less_decoys");
+            let less_decoy_file = match OpenOptions::new().read(true).write(true).create(true).open(&less_decoy_filename) {
                 Ok(file) => file,
-                Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening fasta-file: {}", err)
+                Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening less_decoy-file: {}", err)
             };
             let mut less_decoy_file = LineWriter::new(less_decoy_file);
             match less_decoy_file.write(format!("{}", decoys.len()).as_bytes()) {
                 Ok(_) => (),
                 Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to less_decoy-file: {}", err)
             }
+        }
+
+        let mut comet_params_filename = fasta_filename.to_owned();
+        comet_params_filename.set_extension("comet.params");
+        let comet_params_file = match OpenOptions::new().read(true).write(true).create(true).open(&comet_params_filename) {
+            Ok(file) => file,
+            Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening comet.params: {}", err)
+        };
+        let mut comet_params_file = LineWriter::new(comet_params_file);
+        match comet_params_file.write(comet_parameter::new(&fixed_modifications_map, &variable_modifications_map, &fasta_filename, number_of_target_and_decoys, identification_args.max_number_of_variable_modification_per_decoy).as_bytes()) {
+            Ok(_) => (),
+            Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to comet.params: {}", err)
         }
     }
 }
