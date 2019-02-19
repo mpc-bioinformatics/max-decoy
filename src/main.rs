@@ -216,6 +216,7 @@ fn main() {
             .short("i")
             .long("input-file")
             .value_name("INPUT_FILE")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -223,6 +224,7 @@ fn main() {
             .short("f")
             .long("format")
             .value_name("FORMAT")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -231,6 +233,7 @@ fn main() {
             .long("thread-count")
             .value_name("THREAD_COUNT")
             .takes_value(true)
+            .default_value("2")
         )
         .arg(
             Arg::with_name("NUMBER_OF_MISSED_CLEAVAGES")
@@ -238,7 +241,7 @@ fn main() {
             .long("number-of-missed-cleavages")
             .value_name("NUMBER_OF_MISSED_CLEAVAGES")
             .takes_value(true)
-            .help("default: 2, maximal: 60")
+            .default_value("2")
         )
         .arg(
             Arg::with_name("MIN_PEPTIDE_LENGTH")
@@ -246,6 +249,7 @@ fn main() {
             .long("minimum-peptide_length")
             .value_name("MIN_PEPTIDE_LENGTH")
             .takes_value(true)
+            .default_value("5")
         )
         .arg(
             Arg::with_name("MAX_PEPTIDE_LENGTH")
@@ -261,6 +265,7 @@ fn main() {
             .long("enzym-name")
             .value_name("ENZYM_NAME")
             .takes_value(true)
+            .default_value("Trypsin")
             .help("Trypsin")
         )
     )
@@ -279,7 +284,8 @@ fn main() {
             .long("max-modification-per-decoy")
             .value_name("MAX_MODIFICATION_PER_DECOY")
             .takes_value(true)
-            .help("Integer, Default: 0")
+            .default_value("0")
+            .help("Integer")
         )
         .arg(
             Arg::with_name("PRECURSOR_MASS")
@@ -294,7 +300,8 @@ fn main() {
             .long("number-of-decoys")
             .value_name("NUMBER_OF_DECOYS")
             .takes_value(true)
-            .help("Integer, Default: 1000")
+            .default_value("1000")
+            .help("Integer")
         )
         .arg(
             Arg::with_name("LOWER_MASS_TOLERANCE")
@@ -302,7 +309,8 @@ fn main() {
             .long("lower-mass-tolerance")
             .value_name("LOWER_MASS_TOLERANCE")
             .takes_value(true)
-            .help("Integer, Unit: ppm, Default: 5")
+            .default_value("5")
+            .help("Integer, Unit: ppm")
         )
         .arg(
             Arg::with_name("UPPER_MASS_TOLERANCE")
@@ -310,7 +318,8 @@ fn main() {
             .long("upper-mass-tolerance")
             .value_name("UPPER_MASS_TOLERANCE")
             .takes_value(true)
-            .help("Integer, Unit: ppm, Default: 5")
+            .default_value("5")
+            .help("Integer, Unit: ppm")
         )
         .arg(
             Arg::with_name("THREAD_COUNT")
@@ -325,7 +334,7 @@ fn main() {
             .value_name("MAX_TIME_FOR_DECOY_GENERATION")
             .takes_value(true)
             .default_value("60")
-            .help("Integer, Unit: seconds Default: 60")
+            .help("Integer, Unit: seconds")
         )
     )
     .subcommand(
@@ -335,6 +344,7 @@ fn main() {
             .short("m")
             .long("mz-ml-file")
             .value_name("MZ_ML_FILE")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -342,6 +352,7 @@ fn main() {
             .short("d")
             .long("destination-folder")
             .value_name("DESTINATION_FOLDER")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -350,6 +361,7 @@ fn main() {
             .long("file-suffix")
             .value_name("FILE_SUFFIX")
             .takes_value(true)
+            .default_value("")
             .help("Helping identifying your mzML among others.")
         )
     )
@@ -360,6 +372,7 @@ fn main() {
             .short("m")
             .long("modification_file")
             .value_name("MODIFICATION_FILE")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -367,6 +380,7 @@ fn main() {
             .short("s")
             .long("source-amino-acid")
             .value_name("SOURCE_AMINO_ACID")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -374,6 +388,7 @@ fn main() {
             .short("d")
             .long("destination-amino-acid")
             .value_name("DESTINATION_AMINO_ACID")
+            .required(true)
             .takes_value(true)
         )
     )
@@ -384,6 +399,7 @@ fn main() {
             .short("m")
             .long("modification-file")
             .value_name("INPUT_FILE")
+            .required(true)
             .takes_value(true)
         )
         .arg(
@@ -392,6 +408,7 @@ fn main() {
             .long("spectrum-file")
             .value_name("SPECTRUM_FILE")
             .takes_value(true)
+            .required(true)
             .help("mzML-file")
         )
         .arg(
@@ -400,7 +417,8 @@ fn main() {
             .long("max-number-of-variable-modification-per-peptide")
             .value_name("MAX_NUMBER_OF_VARIABLE_MODIFICATION_PER_PEPTIDE")
             .takes_value(true)
-            .help("Integer, Default: 0")
+            .default_value("0")
+            .help("Integer")
         )
         .arg(
             Arg::with_name("NUMBER_OF_DECOYS")
@@ -408,7 +426,8 @@ fn main() {
             .long("number-of-decoys")
             .value_name("NUMBER_OF_DECOYS")
             .takes_value(true)
-            .help("Integer, Default: 1000")
+            .default_value("1000")
+            .help("Integer")
         )
         .arg(
             Arg::with_name("LOWER_MASS_TOLERANCE")
@@ -416,7 +435,8 @@ fn main() {
             .long("lower-mass-tolerance")
             .value_name("LOWER_MASS_TOLERANCE")
             .takes_value(true)
-            .help("Integer, Unit: ppm, Default: 5")
+            .default_value("5")
+            .help("Integer, Unit: ppm")
         )
         .arg(
             Arg::with_name("UPPER_MASS_TOLERANCE")
@@ -424,7 +444,8 @@ fn main() {
             .long("upper-mass-tolerance")
             .value_name("UPPER_MASS_TOLERANCE")
             .takes_value(true)
-            .help("Integer, Unit: ppm, Default: 5")
+            .default_value("5")
+            .help("Integer, Unit: ppm")
         )
         .arg(
             Arg::with_name("THREAD_COUNT")
@@ -432,7 +453,8 @@ fn main() {
             .long("thread-count")
             .value_name("THREAD_COUNT")
             .takes_value(true)
-            .help("Integer, Default: 2")
+            .default_value("2")
+            .help("Integer")
         )
         .arg(
             Arg::with_name("MAX_TIME_FOR_DECOY_GENERATION")
@@ -440,7 +462,7 @@ fn main() {
             .value_name("MAX_TIME_FOR_DECOY_GENERATION")
             .takes_value(true)
             .default_value("60")
-            .help("Integer, Unit: seconds Default: 60")
+            .help("Integer, Unit: seconds")
         )
     )
     .subcommand(
@@ -450,6 +472,7 @@ fn main() {
             .short("s")
             .long("sequence")
             .value_name("SEQUENCE")
+            .required(true)
             .takes_value(true)
         )
     )
