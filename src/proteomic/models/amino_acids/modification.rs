@@ -3,6 +3,7 @@ use std::path::Path;
 
 use proteomic::models::mass;
 use proteomic::utility::database_connection::DatabaseConnection;
+use proteomic::models::amino_acids::amino_acid::AminoAcid;
 
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -37,7 +38,7 @@ pub struct Modification {
     name: String,
     position: ModificationPosition,
     is_fix: bool,
-    amino_acid_one_letter_code: String,
+    amino_acid_one_letter_code: char,
     mono_mass: i64
 }
 
@@ -48,7 +49,7 @@ impl Modification {
             name: name.to_owned().trim().to_string(),
             position: position,
             is_fix: is_fix,
-            amino_acid_one_letter_code: amino_acid_one_letter_code.to_ascii_uppercase().to_string(),
+            amino_acid_one_letter_code: amino_acid_one_letter_code.to_ascii_uppercase(),
             mono_mass: mass::convert_mass_to_int(mono_mass),
         };
     }
@@ -95,10 +96,7 @@ impl Modification {
     }
 
     pub fn get_amino_acid_one_letter_code(&self) -> char {
-        return match self.amino_acid_one_letter_code.chars().next() {
-            Some(one_letter_code) => one_letter_code,
-            None => '_'
-        };
+        return self.amino_acid_one_letter_code;
     }
 
     #[allow(dead_code)]
@@ -115,7 +113,6 @@ impl Modification {
     }
 
     pub fn create_from_csv_file(modification_csv_file_path: &str) -> Box<Vec<Modification>> {
-        let conn: postgres::Connection = DatabaseConnection::get_database_connection();
         let mut modifications: Vec<Modification> = Vec::new();
         let csv_path = Path::new(modification_csv_file_path);
         let mut reader = match csv::Reader::from_path(&csv_path) {
@@ -130,6 +127,47 @@ impl Modification {
             modifications.push(Self::new_from_csv_row(&row));
         }
         return Box::new(modifications);
+    }
+
+    pub fn to_comet_static_modification_param(&self) -> String {;
+        let amino_acid = AminoAcid::get(self.amino_acid_one_letter_code);
+        if self.amino_acid_one_letter_code.to_ascii_uppercase() != 'J' {
+            return  format!(
+                "add_{}_{} = {}",
+                self.amino_acid_one_letter_code.to_ascii_uppercase(),
+                amino_acid.get_name().to_lowercase(),
+                mass::convert_mass_to_float(self.mono_mass)
+            );
+        } else {
+            return format!(
+                "add_{}_user_amino_acid = {}",
+                self.amino_acid_one_letter_code.to_ascii_uppercase(),
+                mass::convert_mass_to_float(amino_acid.get_mono_mass() + self.mono_mass)
+            );
+        }
+    }
+
+    pub fn to_comet_variable_modification_param(&self, modification_number: u8, max_number_of_variable_modification_per_peptide: u8) -> String {
+        if modification_number > 9 { panic!("proteomic::models::amino_acids::modification::Modification.to_comet_variable_modification_param(): modification_number is not a number from 0 to 9") }
+        let distant_to_terminus: i8 = match self.position {
+            ModificationPosition::Anywhere => -1,
+            ModificationPosition::CTerminus => 1,
+            ModificationPosition::NTerminus => 1
+        };
+        let distant_refere_to_terminus: u8 = match self.position {
+            ModificationPosition::Anywhere => 2,
+            ModificationPosition::CTerminus => 3,
+            ModificationPosition::NTerminus => 2
+        };
+        return format!(
+            "variable_mod0{} = {} {} 0 {} {} {} 0",
+            modification_number,
+            mass::convert_mass_to_float(self.mono_mass),
+            self.get_amino_acid_one_letter_code().to_uppercase(),
+            max_number_of_variable_modification_per_peptide,
+            distant_to_terminus,
+            distant_refere_to_terminus
+        );
     }
 }
 
