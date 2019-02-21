@@ -448,6 +448,14 @@ fn main() {
             .help("Integer, Unit: ppm")
         )
         .arg(
+            Arg::with_name("FRAGMENTATION_TOLERANCE")
+            .long("fragmentation-tolerance")
+            .value_name("FRAGMENTATION_TOLERANCE")
+            .takes_value(true)
+            .default_value("0.02")
+            .help("Float")
+        )
+        .arg(
             Arg::with_name("THREAD_COUNT")
             .short("t")
             .long("thread-count")

@@ -76,7 +76,6 @@ add_Nterm_peptide = 0.0
 add_Cterm_protein = 0.0
 add_Nterm_protein = 0.0
 
-fragment_bin_tol = 0.02
 fragment_bin_offset = 0
 
 ";
@@ -96,8 +95,9 @@ const COMET_PARAMS_END: &'static str = "
 10. Chymotrypsin           1      FWYL        P
 ";
 
-pub fn new(fix_modifications_map: &HashMap<char, Modification>, variable_modifications_map: &HashMap<char, Modification>, fasta_file_path: &Path, number_of_target_and_decoys: usize, max_number_of_variable_modification_per_peptide: u8) -> String {
+pub fn new(fix_modifications_map: &HashMap<char, Modification>, variable_modifications_map: &HashMap<char, Modification>, fasta_file_path: &Path, number_of_target_and_decoys: usize, max_number_of_variable_modification_per_peptide: u8, fragmentation_tolerance: f64) -> String {
     let mut params: String = COMET_PARAMS_BEGIN.to_owned();
+    params.push_str(format!("fragment_bin_tol = {}\n", fragmentation_tolerance).as_str());
     params.push_str(format!("num_results = {}\n", number_of_target_and_decoys).as_str());
     params.push_str(format!("num_output_lines = {}\n", number_of_target_and_decoys).as_str());
     let fasta_file_path_as_str = match fasta_file_path.as_os_str().to_str() {
