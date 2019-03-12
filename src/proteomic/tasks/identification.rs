@@ -338,7 +338,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening comet.params: {}", err)
         };
         let mut comet_params_file = LineWriter::new(comet_params_file);
-        match comet_params_file.write(comet_parameter::new(&fixed_modifications_map, &variable_modifications_map, &fasta_filename, number_of_target_and_decoys, identification_args.max_number_of_variable_modification_per_decoy, identification_args.get_fragmentation_tolerance()).as_bytes()) {
+        match comet_params_file.write(comet_parameter::new(&fixed_modifications_map, &variable_modifications_map, &fasta_filename, number_of_target_and_decoys, identification_args.max_number_of_variable_modification_per_decoy, identification_args.get_fragmentation_tolerance(), identification_args.get_lower_mass_tolerance(), identification_args.get_upper_mass_tolerance()).as_bytes()) {
             Ok(_) => (),
             Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to comet.params: {}", err)
         }
