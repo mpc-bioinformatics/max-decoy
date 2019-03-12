@@ -111,7 +111,7 @@ pub fn new(fix_modifications_map: &HashMap<char, Modification>, variable_modific
         params.push_str(modification.to_comet_static_modification_param().as_str());
         params.push_str("\n");
     }
-    if !fix_modifications_map.contains_key(&'J') { params.push_str("add_J_user_amino_acid = 113.08406"); }
+    if !fix_modifications_map.contains_key(&'J') { params.push_str("add_J_user_amino_acid = 113.08406\n"); }
     let mut modification_number: u8 = 0;
     for (_, modification) in variable_modifications_map {
         params.push_str(modification.to_comet_variable_modification_param(modification_number, max_number_of_variable_modification_per_peptide).as_str());
