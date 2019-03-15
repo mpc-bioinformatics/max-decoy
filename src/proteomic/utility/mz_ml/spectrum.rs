@@ -6,17 +6,17 @@ use std::path::{Path, PathBuf};
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
+use url::percent_encoding::{utf8_percent_encode, percent_decode, DEFAULT_ENCODE_SET};
 
 use proteomic::utility::mz_ml;
 use proteomic::models::mass;
 
 const NAME_OF_MASS_TO_CHARGE_CV_PARAM: &str = "selected ion m/z";
 const NAME_OF_CHARGE_CV_PARAM: &str = "charge state";
-const NAME_OF_TITLE_CV_PARAM: &str = "spectrum title";
 
 pub struct Spectrum {
-    title: String,
-    id_ref: String,
+    spectrum_id: String,
+    scan_id: String,
     mass_to_charge_ratio: f64,
     charge: u8,
     xml: String,
@@ -36,8 +36,8 @@ impl Spectrum {
         let mut inside_selected_ion: bool = false;
         let mut charge: Option<u8> = None;
         let mut mass_to_charge_ratio: Option<f64> = None;
-        let mut title: Option<String> = None;
-        let mut id_ref: Option<String> = None;
+        let mut spectrum_id: Option<String> = None;
+        let mut scan_id: Option<String> = None;
         loop {
             match reader.read_event(&mut buf) {
                 // entering tags: <tag (attr1="" attr2="" ...)>
@@ -46,7 +46,8 @@ impl Spectrum {
                         b"spectrum" => {
                             let attributes = mz_ml::parse_tag_attributes(tag);
                             if let Some(id_value) = attributes.get("id") {
-                                id_ref = Some(id_value.clone());
+                                scan_id = Some(Self::exctract_scan_id_from_spectrum_id(id_value.as_str()));
+                                spectrum_id = Some(id_value.clone());
                             }
                         }
                         b"selectedIon" => inside_selected_ion = true,
@@ -68,20 +69,6 @@ impl Spectrum {
                                 }
                             }
                         },
-                        b"cvParam" if !inside_selected_ion & title.is_none() => {
-                            let attributes = mz_ml::parse_tag_attributes(tag);
-                            if let Some(cv_param_type) = attributes.get("name") {
-                                if cv_param_type.eq(NAME_OF_TITLE_CV_PARAM) {
-                                    if let Some(value) = attributes.get("value") {
-                                        // split value by whitespaces to get something like this: QExHF04026.17842.17842.2
-                                        title = match value.split(" ").next() {
-                                            Some(title) => Some(title.to_owned()),
-                                            None => None
-                                        };
-                                    }
-                                }
-                            }
-                        },
                         _ => ()
                     }
                 }
@@ -93,7 +80,7 @@ impl Spectrum {
                     }
                 },
                 Ok(Event::Eof) => {
-                    if charge.is_some() & mass_to_charge_ratio.is_some() & title.is_some() & id_ref.is_some() {
+                    if charge.is_some() & mass_to_charge_ratio.is_some() & scan_id.is_some() & spectrum_id.is_some() {
                         break;
                     } else {
                         panic!("proteomic::utility::mz_ml::spectrum::Spectrum::new(): Reached end of spectrum xml but either charge, mass-to-charge-ratio, title or id-ref was not found in:\n{}", spectrum_xml);
@@ -106,8 +93,8 @@ impl Spectrum {
             buf.clear();
         }
         return Self {
-            title: title.unwrap(),
-            id_ref: id_ref.unwrap(),
+            spectrum_id: spectrum_id.unwrap(),
+            scan_id: scan_id.unwrap(),
             mass_to_charge_ratio: mass_to_charge_ratio.unwrap(),    // unwrap should be save at this point, because this function will panics if no mass to charge ratio is found
             charge: charge.unwrap(),                                // unwrap should be save at this point, because this function will panics if no charge is found
             xml: spectrum_xml.to_owned(),
@@ -134,18 +121,12 @@ impl Spectrum {
             None => panic!("proteomic::utility::mz_ml::spectrum::get_charge_from_attributes(): cvParam name is '{}' there is no attribute 'value'", NAME_OF_MASS_TO_CHARGE_CV_PARAM)
         }
     }
-
-    pub fn get_title(&self) -> &str {
-        return self.title.as_str();
+    pub fn get_scan_id(&self) -> &str {
+        return self.scan_id.as_str();
     }
 
-    /// Returns the title but will replace all character which are no diget, letter or a hyphen with an underscore.
-    pub fn get_title_as_filename(&self) -> String {
-        return onig::Regex::new(r"[^\dA-Za-z\-]").unwrap().replace_all(self.title.as_str(), "_");
-    }
-
-    pub fn get_id_ref(&self) -> &str {
-        return self.id_ref.as_str();
+    pub fn get_spectrum_id(&self) -> &str {
+        return self.spectrum_id.as_str();
     }
 
     pub fn get_mass_to_charge_ratio(&self) -> &f64 {
@@ -167,11 +148,18 @@ impl Spectrum {
     pub fn to_string(&self) -> String {
         return format!(
             "proteomic::utility::mz_ml::spectrum::Spectrum\n\ttitle => {}\n\tm/z => {}\n\tcharge => {}\n\txml => {}",
-            self.title,
+            if !self.scan_id.is_empty() { self.scan_id.as_str() } else { self.spectrum_id.as_str() },
             self.mass_to_charge_ratio,
             self.charge,
             self.xml
         );
+    }
+
+    /// Returns the title but will replace all character which are no diget, letter or a hyphen with an underscore.
+    pub fn get_filename(&self) -> String {
+        let filename: &str = if !self.scan_id.is_empty() { self.scan_id.as_str() } else { self.spectrum_id.as_str() };
+        let iter = utf8_percent_encode(filename, DEFAULT_ENCODE_SET);
+        return iter.collect::<String>();
     }
 
     /// Creates mzML-file with this spectrum only.
@@ -193,7 +181,7 @@ impl Spectrum {
         // and add number of indention characters of this spectrum to get spectrum's offset
         offset += Self::count_chars_before_tag_starts(self.xml.as_str());
         // add offset-tag for this spectrum
-        index_list.push_str(format!("{}<offset idRef=\"{}\">{}</offset>\n", mz_ml::indent(3), self.id_ref, offset).as_str());
+        index_list.push_str(format!("{}<offset idRef=\"{}\">{}</offset>\n", mz_ml::indent(3), self.spectrum_id, offset).as_str());
         // add spectrum's xml to mzML
         mz_ml_content.push_str(format!("{}\n", self.xml.as_str()).as_str());
         // close spectrumList-tag
@@ -224,7 +212,7 @@ impl Spectrum {
         mz_ml_content.push_str("</indexedmzML>");
         // create mzML-file-path
         let mut mz_ml_file_path = destination_folder.to_path_buf();
-        let mut filename = self.get_title_as_filename();
+        let mut filename = self.get_filename();
         if file_suffix.len() > 0 {
             filename.push_str("_");
             filename.push_str(file_suffix);
@@ -250,6 +238,20 @@ impl Spectrum {
             }
         }
         panic!("proteomic::utility::mz_ml::spectrum::Spectrum::count_chars_before_tag_starts(): tag does not start at all")
+    }
+
+    fn exctract_scan_id_from_spectrum_id(spectrum_id: &str) -> String {
+        let pos = onig::Regex::new(r"scan=.*\b").unwrap().find(spectrum_id);
+        match pos {
+            Some((beg, end)) => {
+                return match String::from(&spectrum_id[beg..end]).split('=').into_iter().last() {
+                    Some(id) => id.to_owned(),
+                    None => "".to_owned()
+                };
+            },
+            None =>
+                return String::new()
+        }
     }
 }
 
