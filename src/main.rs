@@ -10,6 +10,7 @@ extern crate onig;
 extern crate time;
 extern crate csv;
 extern crate dotenv;
+extern crate url;
 
 use std::collections::HashMap;
 use std::path::Path;
