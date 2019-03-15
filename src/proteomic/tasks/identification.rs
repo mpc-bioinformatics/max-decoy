@@ -158,7 +158,11 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             variable_modifications_map.insert(modification.get_amino_acid_one_letter_code(), modification.clone());
         }
     }
-    let mut sorted_modifyable_amino_acids: Vec<char> = fixed_modifications_map.keys().map(|key| *key).collect::<Vec<char>>();
+    let mut sorted_modifyable_amino_acids_set: HashSet<char> = fixed_modifications_map.keys().map(|key| *key).collect();
+    for (key, _) in variable_modifications_map.iter() {
+        sorted_modifyable_amino_acids_set.insert(*key);
+    }
+    let mut sorted_modifyable_amino_acids: Vec<char> = sorted_modifyable_amino_acids_set.drain().collect();
     sorted_modifyable_amino_acids.sort();
     // prepare condition for target and decoys
     let mut target_decoy_condition = TARGET_DECOY_QUERY_CONDITION.to_owned();
@@ -169,6 +173,14 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             conditions.push(format!("{}_count = ${}", amino_acid_one_letter_code.to_ascii_lowercase(), idx + 3));
         }
         target_decoy_condition.push_str(conditions.join(" AND ").as_str());
+    }
+    // merge modifications for creating queries
+    let mut modifications_map: HashMap<char, &Modification> = HashMap::new();
+    for (key, modification_ref) in fixed_modifications_map.iter() {
+        modifications_map.insert(*key, modification_ref);
+    }
+    for (key, modification_ref) in variable_modifications_map.iter() {
+        modifications_map.insert(*key, modification_ref);
     }
     // initialize mzML-Reader
     let mz_ml_reader = MzMlReader::new(identification_args.get_spectrum_file());
@@ -190,7 +202,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         let mut max_modification_counts: HashMap<char, i16> = HashMap::new();
         for amino_acid_one_letter_code in sorted_modifyable_amino_acids.iter() {
             let amino_acid = AminoAcid::get(*amino_acid_one_letter_code);
-            let max_modification_count: i16 = match fixed_modifications_map.get(&amino_acid_one_letter_code) {
+            let max_modification_count: i16 = match modifications_map.get(&amino_acid_one_letter_code) {
                 Some(modification) => (precursor_mass / (amino_acid.get_mono_mass() + modification.get_mono_mass())) as i16,
                 None => continue
             };
@@ -198,7 +210,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
         }
         // get condition values
         let mut condition_values: Vec<(i64, i64, Vec<i16>)> = Vec::new();
-        get_max_modifyable_amino_acid_counts(&fixed_modifications_map, precursor_tolerance, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
+        get_max_modifyable_amino_acid_counts(&modifications_map, precursor_tolerance, &sorted_modifyable_amino_acids, &max_modification_counts, 0, &mut Vec::new(), &mut condition_values);
         // gether targets
         println!("search targets and decoys in database...");
         let mut targets: HashSet<FastaEntry> = HashSet::new();
@@ -345,13 +357,15 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
     }
 }
 
-fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, Modification>, precursor_tolerance: (i64, i64), amino_acid_one_letter_codes: &Vec<char>, max_modification_counts: &HashMap<char, i16>, amino_acid_index: usize, count_combination: &mut Vec<i16>, results: &mut Vec<(i64, i64, Vec<i16>)>) {
+/// Recursive funtion which fills the argument `results` (call by reference) with all combination of different amounts of applied amino acid modificatons and the resulting changes in precursor tolerance limits
+/// After the function is finsihed, the argument `results` contains tuples of the form (lower_precursor_tolerance_with_respect_to_amount_of_modified_amino_acids, upper_precursor_tolerance_with_respect_to_amount_of_modified_amino_acids, Vec[amount_of_modifyable_amino_acid_1, amount_of_modifyable_amino_acid_2, ...])
+fn get_max_modifyable_amino_acid_counts(modifications_map: &HashMap<char, &Modification>, precursor_tolerance: (i64, i64), amino_acid_one_letter_codes: &Vec<char>, max_modification_counts: &HashMap<char, i16>, amino_acid_index: usize, count_combination: &mut Vec<i16>, results: &mut Vec<(i64, i64, Vec<i16>)>) {
     let amino_acid_one_letter_code = match amino_acid_one_letter_codes.get(amino_acid_index) {
         Some(one_letter_code) => one_letter_code,
         None => &'_'
     };
     if let Some(max_modification_count) = max_modification_counts.get(amino_acid_one_letter_code) {
-        if let Some(ref modification) = fixed_modifications_map.get(amino_acid_one_letter_code) {
+        if let Some(ref modification) = modifications_map.get(amino_acid_one_letter_code) {
             for mod_count in 0..*max_modification_count {
                 let modification_mass = mod_count as i64 * modification.get_mono_mass();
                 let new_precursor_tolerance = (
@@ -361,7 +375,7 @@ fn get_max_modifyable_amino_acid_counts(fixed_modifications_map: &HashMap<char, 
                 if precursor_tolerance.0 > 0 {
                     count_combination.push(mod_count);
                     if amino_acid_index < max_modification_counts.len() - 1 {
-                        get_max_modifyable_amino_acid_counts(fixed_modifications_map, new_precursor_tolerance,  amino_acid_one_letter_codes, max_modification_counts, amino_acid_index + 1, count_combination, results);
+                        get_max_modifyable_amino_acid_counts(modifications_map, new_precursor_tolerance,  amino_acid_one_letter_codes, max_modification_counts, amino_acid_index + 1, count_combination, results);
                     } else {
                         results.push((
                             new_precursor_tolerance.0,
