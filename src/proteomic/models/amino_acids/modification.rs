@@ -151,11 +151,11 @@ impl Modification {
         if modification_number > 9 { panic!("proteomic::models::amino_acids::modification::Modification.to_comet_variable_modification_param(): modification_number is not a number from 0 to 9") }
         let distant_to_terminus: i8 = match self.position {
             ModificationPosition::Anywhere => -1,
-            ModificationPosition::CTerminus => 1,
-            ModificationPosition::NTerminus => 1
+            ModificationPosition::CTerminus => 0,
+            ModificationPosition::NTerminus => 0
         };
         let distant_refere_to_terminus: u8 = match self.position {
-            ModificationPosition::Anywhere => 2,
+            ModificationPosition::Anywhere => 0,
             ModificationPosition::CTerminus => 3,
             ModificationPosition::NTerminus => 2
         };
