@@ -9,4 +9,4 @@
 The binary file ends up in `target/release/max_decoy`.
 
 ## Usage
-Use `max_decoy --help` to show the subcommands of MaxDecoy and `max_decoy subcommand --help` to show the parameters of a single subcommand.ö
+Use `max_decoy --help` to show the subcommands of MaxDecoy and `max_decoy subcommand --help` to show the parameters of a single subcommand.
