@@ -9,4 +9,5 @@
 The binary file ends up in `target/release/max_decoy`.
 
 ## Usage
+Copy the file `.env.example` to the folder where you start MaxDecoy, rename it `.env` and adjust it to your needs.   
 Use `max_decoy --help` to show the subcommands of MaxDecoy and `max_decoy subcommand --help` to show the parameters of a single subcommand.
