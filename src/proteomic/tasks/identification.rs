@@ -33,7 +33,8 @@ pub struct IdentificationArguments {
     upper_mass_tolerance: i64,
     fragmentation_tolerance: f64,
     thread_count: usize,
-    max_time_for_decoy_generation: i64
+    max_time_for_decoy_generation: i64,
+    comet_revision: String
 }
 
 impl IdentificationArguments {
@@ -72,6 +73,12 @@ impl IdentificationArguments {
     pub fn get_max_time_for_decoy_generation(&self) -> i64 {
         return self.max_time_for_decoy_generation;
     }
+
+    pub fn get_comet_revision(&self) -> &str {
+        return self.comet_revision.as_str();
+    }
+
+
 
     pub fn from_cli_args(cli_args: &clap::ArgMatches) -> IdentificationArguments {
         let modification_csv_file: &str = match cli_args.value_of("MODIFICATION_FILE") {
@@ -131,6 +138,10 @@ impl IdentificationArguments {
             },
             None => 60
         };
+        let comet_revision: &str = match cli_args.value_of("COMET_REVISION") {
+            Some(comet_revision) => comet_revision,
+            None => panic!("proteomic::tasks::identification::parse_identification_cli_arguments(): you must specify a comet-revision")
+        };
         return Self {
             modification_csv_file: modification_csv_file.to_owned(),
             spectrum_file: spectrum_file.to_owned(),
@@ -140,7 +151,8 @@ impl IdentificationArguments {
             upper_mass_tolerance: upper_mass_tolerance,
             fragmentation_tolerance: fragmentation_tolerance,
             thread_count: thread_count,
-            max_time_for_decoy_generation: max_time_for_decoy_generation
+            max_time_for_decoy_generation: max_time_for_decoy_generation,
+            comet_revision: comet_revision.to_owned()
         }
     }
 }
@@ -350,7 +362,7 @@ pub fn identification_task(identification_args: &IdentificationArguments) {
             Err(err) => panic!("proteomic::tasks::identification::identification_task(): error at opening comet.params: {}", err)
         };
         let mut comet_params_file = LineWriter::new(comet_params_file);
-        match comet_params_file.write(comet_parameter::new(&fixed_modifications_map, &variable_modifications_map, &fasta_filename, number_of_target_and_decoys, identification_args.max_number_of_variable_modification_per_decoy, identification_args.get_fragmentation_tolerance(), identification_args.get_lower_mass_tolerance(), identification_args.get_upper_mass_tolerance()).as_bytes()) {
+        match comet_params_file.write(comet_parameter::new(identification_args.get_comet_revision(), &fixed_modifications_map, &variable_modifications_map, &fasta_filename, number_of_target_and_decoys, identification_args.max_number_of_variable_modification_per_decoy, identification_args.get_fragmentation_tolerance(), identification_args.get_lower_mass_tolerance(), identification_args.get_upper_mass_tolerance()).as_bytes()) {
             Ok(_) => (),
             Err(err) => println!("proteomic::tasks::identification::identification_task(): Could not write to comet.params: {}", err)
         }

@@ -4,7 +4,6 @@ use std::path::Path;
 use proteomic::models::amino_acids::modification::Modification;
 
 const COMET_PARAMS_BEGIN: &'static str = "
-# comet_version 2018.01 rev. 4
 # Comet MS/MS search engine parameters file.
 # Everything following the '#' symbol is treated as a comment.
 
@@ -94,8 +93,10 @@ const COMET_PARAMS_END: &'static str = "
 10. Chymotrypsin           1      FWYL        P
 ";
 
-pub fn new(fix_modifications_map: &HashMap<char, Modification>, variable_modifications_map: &HashMap<char, Modification>, fasta_file_path: &Path, number_of_target_and_decoys: usize, max_number_of_variable_modification_per_peptide: u8, fragmentation_tolerance: f64, lower_precursor_tolerance: i64, upper_precursor_tolerance: i64) -> String {
-    let mut params: String = COMET_PARAMS_BEGIN.to_owned();
+pub fn new(comet_revision: &str, fix_modifications_map: &HashMap<char, Modification>, variable_modifications_map: &HashMap<char, Modification>, fasta_file_path: &Path, number_of_target_and_decoys: usize, max_number_of_variable_modification_per_peptide: u8, fragmentation_tolerance: f64, lower_precursor_tolerance: i64, upper_precursor_tolerance: i64) -> String {
+    let mut params = comet_revision.to_owned();
+    params.push_str("\n");
+    params.push_str(COMET_PARAMS_BEGIN);
     // Comet has only one parameter for upper and lower precursor tolerance which is peptide_mass_tolerance. So we use the greatest of them.
     params.push_str(format!("peptide_mass_tolerance = {:.4}\n", std::cmp::max(lower_precursor_tolerance, upper_precursor_tolerance) as f64).as_str());
     params.push_str(format!("fragment_bin_tol = {}\n", fragmentation_tolerance).as_str());

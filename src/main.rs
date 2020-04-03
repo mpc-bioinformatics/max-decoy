@@ -473,6 +473,15 @@ fn main() {
             .default_value("60")
             .help("Integer, Unit: seconds")
         )
+        .arg(
+            Arg::with_name("COMET_REVISION")
+            .short("r")
+            .long("comet-revision")
+            .value_name("COMET_REVISION")
+            .required(true)
+            .takes_value(true)
+            .help("Revision string from first line of comet params file (must match your comet version), e.g.: # comet_version 2019.01 rev. 4")
+        )
     )
     .subcommand(
         SubCommand::with_name("sequence-mass")
