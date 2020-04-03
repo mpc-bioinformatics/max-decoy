@@ -1,8 +1,8 @@
 use proteomic::models::mass;
 use proteomic::models::mass::neutral_loss::NeutralLoss;
 
-pub const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
-pub const AMINO_ACIDS_FOR_COUNTING: &'static [char] = &['R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
+pub const AMINO_ACIDS_FOR_DECOY_GENERATION: &'static [char] = &['A', 'R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
+pub const AMINO_ACIDS_FOR_COUNTING: &'static [char] = &['A', 'R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'J', 'K', 'M', 'F', 'P', 'O', 'S', 'T', 'U', 'V', 'W', 'Y'];
 
 const A: (&'static str, char, &'static str, &'static str, f64, f64, f32) = ("Alanine", 'A', "Ala", "C3H5ON", 71.03711, 71.0788, 9.1);
 /** B is an average between N and D */

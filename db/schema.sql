@@ -37,6 +37,7 @@ CREATE TABLE peptides (
     v_count SMALLINT DEFAULT 0 NOT NULL,
     w_count SMALLINT DEFAULT 0 NOT NULL,
     y_count SMALLINT DEFAULT 0 NOT NULL,
+    a_count SMALLINT DEFAULT 0 NOT NULL,
     UNIQUE (aa_sequence, weight),
     PRIMARY KEY (id, weight)
 ) PARTITION BY RANGE (weight);
@@ -185,6 +186,7 @@ CREATE TABLE decoys (
     v_count SMALLINT DEFAULT 0 NOT NULL,
     w_count SMALLINT DEFAULT 0 NOT NULL,
     y_count SMALLINT DEFAULT 0 NOT NULL,
+    a_count SMALLINT DEFAULT 0 NOT NULL,
     UNIQUE (aa_sequence, weight),
     PRIMARY KEY (id, weight)
 ) PARTITION BY RANGE (weight);

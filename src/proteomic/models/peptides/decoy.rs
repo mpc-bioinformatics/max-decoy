@@ -144,7 +144,8 @@ impl Persistable<Decoy, i64, String> for Decoy {
                     ('u', row.get(21)),
                     ('v', row.get(22)),
                     ('w', row.get(23)),
-                    ('y', row.get(24))
+                    ('y', row.get(24)),
+                    ('a', row.get(24))
                 ].iter().cloned().collect(),
                 modification_summary: String::new()
             }
@@ -176,7 +177,7 @@ impl Persistable<Decoy, i64, String> for Decoy {
     }
 
     fn create_query() -> &'static str {
-        return "INSERT INTO decoys (aa_sequence, number_of_missed_cleavages, weight, length, r_count, n_count, d_count, c_count, e_count, q_count, g_count, h_count, j_count, k_count, m_count, f_count, p_count, o_count, s_count, t_count, u_count, v_count, w_count, y_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id;";
+        return "INSERT INTO decoys (aa_sequence, number_of_missed_cleavages, weight, length, a_count, r_count, n_count, d_count, c_count, e_count, q_count, g_count, h_count, j_count, k_count, m_count, f_count, p_count, o_count, s_count, t_count, u_count, v_count, w_count, y_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) ON CONFLICT (aa_sequence, weight) DO NOTHING RETURNING id;";
     }
 
     fn create_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
@@ -185,6 +186,7 @@ impl Persistable<Decoy, i64, String> for Decoy {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
+            self.get_count_for_amino_acid(&'A'),
             self.get_count_for_amino_acid(&'R'),
             self.get_count_for_amino_acid(&'N'),
             self.get_count_for_amino_acid(&'D'),
@@ -209,7 +211,7 @@ impl Persistable<Decoy, i64, String> for Decoy {
     }
 
     fn update_query() -> &'static str{
-        return "UPDATE decoys SET aa_sequence = $2, number_of_missed_cleavages = $4, weight = $5, length = $6, r_count = $7, n_count = $8, d_count = $9, c_count = $10, e_count = $11, q_count = $12, g_count = $13, h_count = $14, j_count = $15, k_count = $16, m_count = $17, f_count = $18, p_count = $19, o_count = $20, s_count = $21, t_count = $22, u_count = $23, v_count = $24, w_count = $25, y_count = $26 WHERE id = $1;";
+        return "UPDATE decoys SET aa_sequence = $2, number_of_missed_cleavages = $3, weight = $4, length = $5, a_count = $6, r_count = $7, n_count = $8, d_count = $9, c_count = $10, e_count = $11, q_count = $12, g_count = $13, h_count = $14, j_count = $15, k_count = $16, m_count = $17, f_count = $18, p_count = $19, o_count = $20, s_count = $21, t_count = $22, u_count = $23, v_count = $24, w_count = $25, y_count = $26 WHERE id = $1;";
     }
 
     fn update_attributes(&self) -> Box<Vec<&postgres::types::ToSql>>{
@@ -219,6 +221,7 @@ impl Persistable<Decoy, i64, String> for Decoy {
             &self.number_of_missed_cleavages,
             &self.weight,
             &self.length,
+            self.get_count_for_amino_acid(&'A'),
             self.get_count_for_amino_acid(&'R'),
             self.get_count_for_amino_acid(&'N'),
             self.get_count_for_amino_acid(&'D'),
